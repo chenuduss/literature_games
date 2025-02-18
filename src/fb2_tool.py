@@ -57,7 +57,7 @@ def FileToFb2(source_filename:str, dest_filename:str, title:str):
     
     raise UnknownFileFormatException()
 
-def GetDocTextSize(source_filename:str, dest_filename:str, title:str) -> int:
+def GetDocTextSize(source_filename:str) -> int:
     doc = docx.Document(source_filename)
     result = 0
     ps = GetParagraphs(doc)

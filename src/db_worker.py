@@ -2,7 +2,6 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import pool
 from datetime import datetime
-from litgb_exception import YSDBException
 
 def ConnectionPool(function_to_decorate):    
     def wrapper(*args, **kwargs):
@@ -95,30 +94,41 @@ class DbWorkerService:
         ps_cursor = connection.cursor()          
         ps_cursor.execute("SELECT SUM(file_size) FROM uploaded_file WHERE file_path IS NOT NULL")        
         rows = ps_cursor.fetchall()
-        return rows[0][0] 
+        if rows[0][0] is None:
+            return 0
+        return rows[0][0]
+    
+    @ConnectionPool    
+    def GetFileTotalCount(self, connection=None) -> int:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT COUNT(*) FROM uploaded_file WHERE file_path IS NOT NULL")        
+        rows = ps_cursor.fetchall()
+        if rows[0][0] is None:
+            return 0
+        return rows[0][0]    
 
 
     @ConnectionPool    
     def GetFileList(self, user_id:int, limit:int, connection=None) -> list[FileInfo]:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL LIMIT %s", (user_id, limit))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL LIMIT %s", (user_id, limit))        
         rows = ps_cursor.fetchall()
 
         result = []
         for row in rows:
-            result.append(FileInfo(row[0], row[1], row[2], row[3], row[4], row[5], row[6]))
+            result.append(FileInfo(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]))
 
         return result
     
     @ConnectionPool    
     def GetNotLockedFileList(self, user_id:int, connection=None) -> list[FileInfo]:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL AND locked = false", (user_id, ))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, ts, file_path, user_id FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL AND locked = false", (user_id, ))        
         rows = ps_cursor.fetchall()
 
         result = []
         for row in rows:
-            result.append(FileInfo(row[0], row[1], row[2], row[3], False, row[5], row[6]))
+            result.append(FileInfo(row[0], row[1], row[2], row[3], False, row[4], row[5], row[6]))
 
         return result    
     

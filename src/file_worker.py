@@ -5,6 +5,7 @@ class FileStorage:
     def __init__(self, directory:str):
         self.Directory = directory
 
+    @staticmethod
     def MakeUniqueFileName(name:str) -> str:
         return str(random.randint(100, 2000000))+"_"+name
 

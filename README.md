@@ -12,11 +12,11 @@
     
 Создание:
 
-    python3 dbtool.py --host 127.0.0.1 --db ysdb_db2 --user postgres --action create --password ****
+    python3 dbtool.py --host 127.0.0.1 --db litgb_db2 --user postgres --action create --password ****
 
 Обновление:
 
-    python3 dbtool.py --host 127.0.0.1 --db ysdb_db2 --user postgres --password **** --action update    
+    python3 dbtool.py --host 127.0.0.1 --db litgb_db2 --user postgres --password **** --action update    
 
 
 ## Запуск

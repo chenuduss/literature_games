@@ -5,6 +5,7 @@ from db_worker import DbWorkerService, FileInfo
 import logging
 import json
 import time
+import os
 from datetime import timedelta, datetime
 from litgb_exception import LitGBException
 from zoneinfo import ZoneInfo
@@ -153,6 +154,8 @@ class LitGBot:
         uptime_sec = time.time() - self.StartTS
         uptime = timedelta(seconds = uptime_sec)
         status_msg +="\nАптайм "+ str(uptime)
+        status_msg +="\nФайлы: "+str(self.Db.GetFileTotalCount())+ ". Суммарный размер: "+ MakeHumanReadableAmount(self.Db.GetFilesTotalSize())
+        status_msg +="\nЛимит хранилища: " + MakeHumanReadableAmount(self.FileTotalSizeLimit)
         status_msg += "\n\n"+ LitGBot.get_help()
 
         #status_msg +="\nВерсия "+ str(uptime)
@@ -177,7 +180,7 @@ class LitGBot:
     def MakeFileTitle(filename:str) -> str:
         return filename
 
-    async def downloader(self, update, context):            
+    async def downloader(self, update, context: ContextTypes.DEFAULT_TYPE):            
         logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user))    
 
         file_full_path = None
@@ -186,7 +189,7 @@ class LitGBot:
             if total_files_Size > self.FileTotalSizeLimit:
                 raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileTotalSizeLimit))
             
-            self.Db.EnsureUserExists(update.effective_user.id)
+            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
 
             deleted_file_name = None
             flimit = self.Db.GetUserFileLimit(update.effective_user.id)
@@ -207,10 +210,9 @@ class LitGBot:
             if file.file_size > self.MaxFileSize:
                 raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
             
-            file_full_path = self.FileStorage.GetFileFullPath(file.file_path)
-            file_title = self.MakeFileTitle(file.file_path)
-            if file_title > self.MaxFileNameSize:
-                raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
+            _, ext = os.path.splitext(file.file_path)
+            file_title = "f_"+str(int(time.time()))
+            file_full_path = self.FileStorage.GetFileFullPath(file_title+ext)            
             
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
             await file.download_to_drive(file_full_path)             
@@ -244,7 +246,7 @@ class LitGBot:
     
     @staticmethod
     def FileSizeCaption(f:FileInfo) ->str:        
-        return "Текст "+MakeHumanReadableAmount(f.TextSize)+ "(Файл: "+MakeHumanReadableAmount(f.Size)+")"
+        return "Текст "+MakeHumanReadableAmount(f.TextSize)+ " (Файл: "+MakeHumanReadableAmount(f.Size)+")"
 
     @staticmethod
     def MakeFileListItem(f:FileInfo) -> str:
@@ -290,7 +292,7 @@ class LitGBot:
         result = self.Db.FindFile(file_id)
         if result is None:
             raise LitGBException("Файл с указанным идентификатором не найден")
-        if (file.Owner != user_id) or (file.FilePath is None):
+        if (result.Owner != user_id) or (result.FilePath is None):
             raise LitGBException("Файл с указанным идентификатором не найден")
         return result
     
@@ -303,8 +305,7 @@ class LitGBot:
             FileToFb2(f.FilePath, fb2_filepath, f.Title)
 
             file_obj = open(fb2_filepath, "rb")
-            await context.bot.send_document(update.effective_chat.id, file_obj, fb2_name)
-            fb2_filepath = None
+            await context.bot.send_document(update.effective_chat.id, file_obj, filename=fb2_name)
         finally:
             if not (fb2_filepath is None):
                 self.FileStorage.DeleteFileFullPath(fb2_filepath)
@@ -328,8 +329,13 @@ class LitGBot:
 
 
     @staticmethod
-    def file_menu_message(self, f:FileInfo|None):
-        pass
+    def file_menu_message(f:FileInfo|None) -> str:
+        result = LitGBot.LockedMark(f.Locked) + "#" + str(f.Id)
+        result +="\nНазвание: " + f.Title
+        result +="\n"+LitGBot.FileSizeCaption(f)
+        result +="\nЗагружено: " + f.Loaded.strftime("%d.%m.%Y %H:%M")
+
+        return result
 
     @staticmethod
     def error_menu_message(self, error:LitGBException) -> str:
@@ -343,14 +349,18 @@ class LitGBot:
         file_id_str = str(file.Id)
         keyboard = []   
         
+
+
+        keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
+        keyboard.append([InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str)])
+
+        list_buttons_line = []
         if file_index > 0:
-            keyboard.append(InlineKeyboardButton('<=', callback_data='file_show_'+str(files[file_index-1].Id)))
-
-        keyboard.append(InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str))
-        keyboard.append(InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str))
-
+            list_buttons_line.append(InlineKeyboardButton('<=', callback_data='file_show_'+str(files[file_index-1].Id)))
         if file_index < len(files)-1:
-            keyboard.append(InlineKeyboardButton('=>', callback_data='file_show_'+str(files[file_index+1].Id)))
+            list_buttons_line.append(InlineKeyboardButton('=>', callback_data='file_show_'+str(files[file_index+1].Id)))
+        if len(list_buttons_line) > 0:
+            keyboard.append(list_buttons_line)    
 
         return InlineKeyboardMarkup(keyboard)
     
@@ -361,7 +371,7 @@ class LitGBot:
             return        
         
         query = update.callback_query                
-        query.answer()
+        await query.answer()
         try:
             if len(query.data) < 7:
                 raise LitGBException("invalid query.data value: "+query.data)
@@ -383,7 +393,7 @@ class LitGBot:
 
                 if file_index < 0:
                     raise LitGBException("file not found in file list")
-                query.edit_message_text(
+                await query.edit_message_text(
                             text=self.file_menu_message(f),
                             reply_markup=self.file_menu_keyboard(file_index, files))
             elif params[0] == "delete":  
@@ -393,8 +403,9 @@ class LitGBot:
                     raise LitGBException("file locked")
                 self.DeleteFile(f)
             elif params[0] == "fb2":
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
-                self.SendFB2(f, update, context)
+                file_id = int(params[1])
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+                await self.SendFB2(f, update, context)
             else:
                 raise LitGBException("unknown menu action: "+params[0])
         except LitGBException as ex:
@@ -459,9 +470,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("top", bot.top))
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
     
-    app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))
-
-    #https://stackoverflow.com/questions/51125356/proper-way-to-build-menus-with-python-telegram-bot
+    app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 
     app.run_polling()
 
+#https://docs-python.ru/packages/biblioteka-python-telegram-bot-python/planirovschik-soobschenij/
