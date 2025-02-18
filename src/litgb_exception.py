@@ -1,4 +1,4 @@
-class YSDBException(Exception):
+class LitGBException(Exception):
     def __init__(self, message:str, related_exception:BaseException|None = None):         
         super().__init__(message)
         self.message = message

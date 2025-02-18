@@ -1,0 +1,3 @@
+{    
+    "python.defaultInterpreterPath": "${workspaceFolder}/penv/bin/python3"
+}

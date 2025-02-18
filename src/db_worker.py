@@ -2,7 +2,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import pool
 from datetime import datetime
-from ysdb_exception import YSDBException
+from litgb_exception import YSDBException
 
 def ConnectionPool(function_to_decorate):    
     def wrapper(*args, **kwargs):

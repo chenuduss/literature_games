@@ -1,6 +1,6 @@
 # Бот самодисциплины
 
-Бот: @your_self_discipline_bot
+Бот: @literature_games_bot
 
 ## Подготовка системы
 
