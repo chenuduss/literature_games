@@ -16,5 +16,5 @@ class LitGBException(Exception):
         return result   
     
 class UnknownFileFormatException(LitGBException):
-    def __init__(self, ext:str|None):
-        LitGBException.__init__("Неизвестный формат файла"+ ("" if ext is None else (": "+ext)))
+    def __init__(self, ext:str|None = None):
+        LitGBException.__init__(self, "Неизвестный формат файла"+ ("" if ext is None else (": "+ext)))

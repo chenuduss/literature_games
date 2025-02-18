@@ -33,7 +33,7 @@ def MakeFB2(pars:list[str], title:str) -> str:
     date_value_long = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     result = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<FictionBook xmlns:l=\"http://www.w3.org/1999/xlink\" xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\">"
-    result += "<description>\n<title-info> <genre>ysdb_bot</genre> <author> <first-name>anonymous</first-name> <last-name>anonymous</last-name> <home-page>https://author.today/</home-page></author>"
+    result += "<description>\n<title-info> <genre>litg_bot</genre> <author> <first-name>anonymous</first-name> <last-name>anonymous</last-name> <home-page>https://author.today/</home-page></author>"
     result += "<book-title>"+title+"</book-title> <annotation><p>no annotaion</p> </annotation>"
     result += "<date value=\""+date_value_short+"\">"+date_value_long+"</date><lang>ru</lang></title-info>"
     result += "\n<document-info><author> <first-name>anonymous</first-name><last-name>anonymous</last-name> <home-page>https://author.today/</home-page></author>"
@@ -46,6 +46,15 @@ def MakeFB2(pars:list[str], title:str) -> str:
 
     return result
 
+def TxtToFb2(source_filename:str, dest_filename:str, title:str):
+    ps = []
+    with open(source_filename, "r") as file:
+        for line in file:
+            ps.append(line)
+    
+    with open(dest_filename, 'w') as f:
+        f.write(MakeFB2(ps, title))    
+
 def DocToFb2(source_filename:str, dest_filename:str, title:str):
     doc = docx.Document(source_filename)    
     ps = GetParagraphs(doc)
@@ -55,8 +64,18 @@ def DocToFb2(source_filename:str, dest_filename:str, title:str):
 def FileToFb2(source_filename:str, dest_filename:str, title:str):
     if source_filename.endswith("docx"):
         return DocToFb2(source_filename, dest_filename, title)
+    elif source_filename.endswith("txt"):
+        return TxtToFb2(source_filename, dest_filename, title)    
     
-    raise UnknownFileFormatException()
+    raise UnknownFileFormatException(None)
+
+def GetTxtTextSize(source_filename:str) -> int:
+    result = 0
+    with open(source_filename, "r") as file:
+        for line in file:
+            result += len(NormalizeParagraph(line))
+
+    return result
 
 def GetDocTextSize(source_filename:str) -> int:
     doc = docx.Document(source_filename)
@@ -70,8 +89,10 @@ def GetDocTextSize(source_filename:str) -> int:
 def GetTextSize(filepath:str) -> int:
     if filepath.endswith("docx"):
         return GetDocTextSize(filepath)
+    elif filepath.endswith("txt"):
+        return GetTxtTextSize(filepath)
     
-    raise UnknownFileFormatException()
+    raise UnknownFileFormatException(None)
 	
 def main():
     DocToFb2(sys.argv[1], sys.argv[2], sys.argv[1])

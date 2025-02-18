@@ -216,10 +216,14 @@ class LitGBot:
                 raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
             
             _, ext = os.path.splitext(file.file_path)
-            if len(update.message.caption) == 0:
-                file_title = "f_"+str(int(time.time()))
-            else:
-                file_title = update.message.caption.strip()
+
+            file_title = None
+            if not (update.message.caption is None):
+                if len(update.message.caption) > 0:
+                    file_title = update.message.caption.strip()
+            if file_title is None:
+                file_title = "f_"+str(int(time.time()))    
+                
             if len(file_title) > self.MaxFileNameSize:
                 raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
             file_full_path = self.FileStorage.GetFileFullPath(file_title+ext)            
