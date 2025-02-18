@@ -8,6 +8,11 @@ CREATE TABLE competition (
     accept_files_deadline timestamp with time zone NOT NULL,
     polling_deadline timestamp with time zone NOT NULL,
     entry_token text,
+    min_text_size int NOT NULL,
+    max_text_size int NOT NULL,
+    member_count int,
+    subject text NOT NULL,
+    subject_ext text,
     FOREIGN KEY (chat_id) REFERENCES chat (id),
     FOREIGN KEY (created_by) REFERENCES sd_user (id),
 );
@@ -16,6 +21,8 @@ CREATE TABLE competition_member (
     comp_id bigint NOT NULL,
     user_id bigint NOT NULL,
     file_id bigint,
+    result_place int,
+    result_score int,
     FOREIGN KEY (comp_id) REFERENCES competition (id),
     FOREIGN KEY (user_id) REFERENCES sd_user (id),
     FOREIGN KEY (file_id) REFERENCES uploaded_file (id)
