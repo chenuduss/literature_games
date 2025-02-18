@@ -1,5 +1,5 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 import argparse
 from db_worker import DbWorkerService, FileInfo
 import logging
@@ -39,7 +39,11 @@ class CommandLimits:
             self.ChatLimits[chat_id] = t    
         
         self.LastHandledStatCommand = t
-        return False        
+        return False       
+
+class UserConversation:
+    def __init__(self): 
+        self.SetTitleFor = None
 
 class LitGBot:
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
@@ -52,6 +56,7 @@ class LitGBot:
         self.FileTotalSizeLimit = 1024*1024*256
         self.FileStorage = file_stor  
         self.MaxFileNameSize = 280
+        self.UserConversations:dict[int, UserConversation] = {}
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -180,7 +185,7 @@ class LitGBot:
     def MakeFileTitle(filename:str) -> str:
         return filename
 
-    async def downloader(self, update, context: ContextTypes.DEFAULT_TYPE):            
+    async def downloader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):            
         logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user))    
 
         file_full_path = None
@@ -211,7 +216,12 @@ class LitGBot:
                 raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
             
             _, ext = os.path.splitext(file.file_path)
-            file_title = "f_"+str(int(time.time()))
+            if len(update.message.caption) == 0:
+                file_title = "f_"+str(int(time.time()))
+            else:
+                file_title = update.message.caption.strip()
+            if len(file_title) > self.MaxFileNameSize:
+                raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
             file_full_path = self.FileStorage.GetFileFullPath(file_title+ext)            
             
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
@@ -329,7 +339,7 @@ class LitGBot:
 
 
     @staticmethod
-    def file_menu_message(f:FileInfo|None) -> str:
+    def file_menu_message(f:FileInfo|None) -> str:        
         result = LitGBot.LockedMark(f.Locked) + "#" + str(f.Id)
         result +="\nНазвание: " + f.Title
         result +="\n"+LitGBot.FileSizeCaption(f)
@@ -352,6 +362,7 @@ class LitGBot:
 
 
         keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
+        keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
         keyboard.append([InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str)])
 
         list_buttons_line = []
@@ -385,6 +396,8 @@ class LitGBot:
                 if len(files)==0:                
                     raise LitGBException("file list empty")
                 
+                files.sort(key=lambda x: x.Loaded)
+
                 file_index = -1
                 for i, v in enumerate(files): 
                     if v.Id == f.Id:
@@ -400,8 +413,18 @@ class LitGBot:
                 file_id = int(params[1])                
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
                 if f.Locked:
-                    raise LitGBException("file locked")
+                    raise LitGBException("file locked")                
                 self.DeleteFile(f)
+            elif params[0] == "settitle":  
+                file_id = int(params[1])                
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                if f.Locked:
+                    raise LitGBException("file locked")            
+                uconv = UserConversation()
+                uconv.SetTitleFor = f.Id
+                self.UserConversations[update.effective_user.id] = uconv
+                await query.edit_message_text(
+                    text="Введите новое название файла", reply_markup=InlineKeyboardMarkup([]))                
             elif params[0] == "fb2":
                 file_id = int(params[1])
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
@@ -433,9 +456,27 @@ class LitGBot:
             await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
         except BaseException as ex:    
             logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                 
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))    
 
-
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
+        logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))         
+        
+        try:
+            if update.effective_user.id in self.UserConversations:
+                if update.effective_user.id != update.effective_chat.id:
+                    return
+                convers = self.UserConversations.pop(update.effective_user.id)
+                if not (convers.SetTitleFor is None):
+                    logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
+                    if len(update.message.text) > self.MaxFileNameSize:
+                        raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
+                    self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
+                    await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
+        except BaseException as ex:    
+            logging.error("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                    
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -459,7 +500,7 @@ if __name__ == '__main__':
 
     app = ApplicationBuilder().token(conf['bot_token']).build()
 
-    bot = LitGBot(db, file_str)
+    bot = LitGBot(db, file_str)   
 
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
@@ -469,6 +510,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 

@@ -150,6 +150,14 @@ class DbWorkerService:
         connection.commit() 
 
         return self.FindFile(id)
+    
+    @ConnectionPool    
+    def SetFileTitle(self, id:int, title:str, connection=None) -> FileInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE uploaded_file SET title = %s WHERE id = %s ", (title, id)) 
+        connection.commit() 
+
+        return self.FindFile(id)    
         
 
     @ConnectionPool    

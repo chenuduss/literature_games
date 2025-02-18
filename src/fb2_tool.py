@@ -1,5 +1,6 @@
 import docx
 import sys
+from datetime import datetime
 
 from litgb_exception import UnknownFileFormatException
  
@@ -10,8 +11,8 @@ def GetParagraphs(doc:docx.Document) -> list[str]:
     
     return result
 
-def NormalizeParagraph(par:str)->str:
-    return par
+def NormalizeParagraph(par:str) -> str:
+    return par.strip(" \t")
 
 def MakeParagraph(par:str)->str:
     return "<p>"+NormalizeParagraph(par)+"</p>"
@@ -28,8 +29,8 @@ def MakeSection(pars:list[str], title:str)->str:
 
 
 def MakeFB2(pars:list[str], title:str) -> str:
-    date_value_short = "2019-11-07"
-    date_value_long = "2019-11-07 12:00:00"
+    date_value_short = datetime.now().strftime("%Y-%m-%d")
+    date_value_long = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     result = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<FictionBook xmlns:l=\"http://www.w3.org/1999/xlink\" xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\">"
     result += "<description>\n<title-info> <genre>ysdb_bot</genre> <author> <first-name>anonymous</first-name> <last-name>anonymous</last-name> <home-page>https://author.today/</home-page></author>"
