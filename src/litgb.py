@@ -1,5 +1,5 @@
-from telegram import Update, User, Chat
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
 from db_worker import DbWorkerService, FileInfo
 import logging
@@ -283,37 +283,148 @@ class LitGBot:
         except BaseException as ex:
             raise LitGBException("Некорректный формат команды /getfb2")        
 
-        return result        
+        return result    
+
+
+    def GetFileAndCheckAccess(self, file_id:int, user_id:int) -> FileInfo:
+        result = self.Db.FindFile(file_id)
+        if result is None:
+            raise LitGBException("Файл с указанным идентификатором не найден")
+        if (file.Owner != user_id) or (file.FilePath is None):
+            raise LitGBException("Файл с указанным идентификатором не найден")
+        return result
+    
+    async def SendFB2(self, f:FileInfo, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        fb2_filepath = None
+
+        try:
+            fb2_name = f.Title+".fb2"
+            fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
+            FileToFb2(f.FilePath, fb2_filepath, f.Title)
+
+            file_obj = open(fb2_filepath, "rb")
+            await context.bot.send_document(update.effective_chat.id, file_obj, fb2_name)
+            fb2_filepath = None
+        finally:
+            if not (fb2_filepath is None):
+                self.FileStorage.DeleteFileFullPath(fb2_filepath)
+
 
     async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         if update.effective_user.id != update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
-
-        fb2_filepath = None
+        
         try:
             file_id = self.ParseGetFB2Command(update.message.text)
-            file = self.Db.FindFile(file_id)
-            if file is None:
-                await update.message.reply_text("Файл с указанным идентификатором не найден")
-            if (file.Owner != update.effective_user.id) or (file.FilePath is None):
-                await update.message.reply_text("Файл с указанным идентификатором не найден")
+            file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
 
-            fb2_name = file.Title+".fb2"
-            fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
-            FileToFb2(file.FilePath, fb2_filepath, file.Title)
-
-            file_obj = open(fb2_filepath, "rb")
-            await context.bot.send_document(update.effective_chat.id, file_obj, fb2_name)
-            fb2_filepath = None
+            await self.SendFB2(file, update, context)
         except LitGBException as ex:
             await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
         except BaseException as ex:    
             logging.error("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))             
-        finally:
-            if not (fb2_filepath is None):
-                self.FileStorage.DeleteFileFullPath(fb2_filepath)
+
+
+    @staticmethod
+    def file_menu_message(self, f:FileInfo|None):
+        pass
+
+    @staticmethod
+    def error_menu_message(self, error:LitGBException) -> str:
+        return LitGBot.MakeErrorMessage(error)
+
+    def file_menu_keyboard(self, file_index:int, files:list[FileInfo]):
+        if len(files) == 0:
+            return InlineKeyboardMarkup([])
+
+        file = files[file_index]
+        file_id_str = str(file.Id)
+        keyboard = []   
+        
+        if file_index > 0:
+            keyboard.append(InlineKeyboardButton('<=', callback_data='file_show_'+str(files[file_index-1].Id)))
+
+        keyboard.append(InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str))
+        keyboard.append(InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str))
+
+        if file_index < len(files)-1:
+            keyboard.append(InlineKeyboardButton('=>', callback_data='file_show_'+str(files[file_index+1].Id)))
+
+        return InlineKeyboardMarkup(keyboard)
+    
+
+    async def file_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
+        logging.info("[file_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if update.effective_user.id != update.effective_chat.id:
+            return        
+        
+        query = update.callback_query                
+        query.answer()
+        try:
+            if len(query.data) < 7:
+                raise LitGBException("invalid query.data value: "+query.data)
+            qdata = query.data[5:]
+            params = qdata.split("_", 1)        
+
+            if params[0] == "show":
+                file_id = int(params[1])                
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                files = self.Db.GetFileList(update.effective_user.id, 30)
+                if len(files)==0:                
+                    raise LitGBException("file list empty")
+                
+                file_index = -1
+                for i, v in enumerate(files): 
+                    if v.Id == f.Id:
+                        file_index = i
+                        break
+
+                if file_index < 0:
+                    raise LitGBException("file not found in file list")
+                query.edit_message_text(
+                            text=self.file_menu_message(f),
+                            reply_markup=self.file_menu_keyboard(file_index, files))
+            elif params[0] == "delete":  
+                file_id = int(params[1])                
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                if f.Locked:
+                    raise LitGBException("file locked")
+                self.DeleteFile(f)
+            elif params[0] == "fb2":
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                self.SendFB2(f, update, context)
+            else:
+                raise LitGBException("unknown menu action: "+params[0])
+        except LitGBException as ex:
+            await query.edit_message_text(
+                text=self.error_menu_message(ex), reply_markup=InlineKeyboardMarkup([]))                    
+        except BaseException as ex:    
+            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await query.edit_message_text(
+                text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([])) 
+
+
+    async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
+        logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if update.effective_user.id != update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
+        
+        try:
+            files = self.Db.GetFileList(update.effective_user.id, 30)
+            if len(files) > 0:
+                files.sort(key=lambda x: x.Loaded)                
+                await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files))   
+            else:
+                await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, []))   
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
+        except BaseException as ex:    
+            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                 
+
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -341,10 +452,13 @@ if __name__ == '__main__':
 
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
+    app.add_handler(CommandHandler("files", bot.files))
     app.add_handler(CommandHandler("getfb2", bot.getfb2))
     app.add_handler(CommandHandler("mystat", bot.mystat))
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
+    app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
+    
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))
 
     #https://stackoverflow.com/questions/51125356/proper-way-to-build-menus-with-python-telegram-bot
