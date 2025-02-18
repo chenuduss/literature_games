@@ -26,6 +26,17 @@ class ChatTopItem:
         self.Title = title
         self.Amount = amount        
 
+class FileInfo:
+    def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None ):
+        self.Id = id
+        self.Title = title
+        self.Size = size             
+        self.TextSize = text_size
+        self.Locked = locked
+        self.Loaded = loaded
+        self.FilePath = file_path
+
+
 class DbWorkerService:   
     def __init__(self, config:dict):
         psycopg2.extras.register_uuid()
@@ -69,102 +80,79 @@ class DbWorkerService:
         rows = ps_cursor.fetchall()
         if len(rows) < 1:            
             ps_cursor.execute("INSERT INTO chat (id, title) VALUES (%s, %s)", (chat_id, title)) 
-            connection.commit()   
-        
+            connection.commit()
+    
     @ConnectionPool    
-    def InsertSelfContribRecord(self, user_id:int, chat_id:int, amount:int, connection=None) -> None:
-        ps_cursor = connection.cursor() 
-        ps_cursor.execute("INSERT INTO self_contrib_record (user_id, chat_id, amount) VALUES (%s, %s, %s)", (user_id, chat_id, amount)) 
+    def GetFileCount(self, user_id:int, connection=None) -> int:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT COUNT(*) FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL", (user_id, ))        
+        rows = ps_cursor.fetchall()
+        return rows[0][0]    
+
+    @ConnectionPool    
+    def GetFilesTotalSize(self, connection=None) -> int:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT SUM(file_size) FROM uploaded_file WHERE file_path IS NOT NULL")        
+        rows = ps_cursor.fetchall()
+        return rows[0][0] 
+
+
+    @ConnectionPool    
+    def GetFileList(self, user_id:int, connection=None) -> list[FileInfo]:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL", (user_id, ))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append(FileInfo(row[0], row[1], row[2], row[3], row[4], row[5], row[6]))
+
+        return result
+    
+    @ConnectionPool    
+    def GetNotLockedFileList(self, user_id:int, connection=None) -> list[FileInfo]:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, title, file_size, text_size, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL AND locked = false", (user_id, ))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append(FileInfo(row[0], row[1], row[2], row[3], False, row[5], row[6]))
+
+        return result    
+    
+    @ConnectionPool    
+    def FindFile(self, id:int, connection=None) -> FileInfo|None:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE id = %s", (id, ))        
+        rows = ps_cursor.fetchall()
+
+        if len(rows) > 0: 
+            return FileInfo(rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4], rows[0][5], rows[0][5])
+
+        return None    
+    
+    @ConnectionPool    
+    def ClearFilePath(self, id:int, connection=None) -> FileInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE uploaded_file SET file_path = NULL WHERE id = %s ", (id, )) 
         connection.commit() 
 
-    @ConnectionPool    
-    def DeleteLastSelfContribRecords(self, user_id:int, chat_id:int, limit:int, connection=None) -> None:
-        ps_cursor = connection.cursor() 
-
-        ps_cursor.execute("SELECT ts FROM self_contrib_record WHERE user_id = %s AND chat_id = %s ORDER BY ts DESC LIMIT %s", (user_id, chat_id, limit))        
-        rows = ps_cursor.fetchall()                
-        if len(rows) < 1:
-            return
+        return self.FindFile(id)
         
-        row = rows[-1]
-        ps_cursor.execute("DELETE FROM self_contrib_record WHERE user_id = %s AND chat_id = %s AND ts >= %s", (user_id, chat_id, row[0])) 
-        connection.commit()         
 
     @ConnectionPool    
-    def SelectLastUserSelfContribs(self, user_id:int, chat_id:int, limit:int,  connection=None) -> list[ChatRelatedUserSelfContrib]:
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT ts, amount FROM self_contrib_record WHERE user_id = %s AND chat_id = %s ORDER BY ts DESC LIMIT %s", (user_id, chat_id, limit))        
-        rows = ps_cursor.fetchall()        
-        result = []
-        for row in rows:
-            result.append(ChatRelatedUserSelfContrib(row[0], row[1]))
-
-        return result    
-
-
-    
-    @ConnectionPool    
-    def GetAllAmountSum(self, user_id:int, connection=None) -> None:
-        raise NotImplementedError("DbWorkerService.CalcAllUserStat")   
-
-    @ConnectionPool    
-    def GetAmountSum(self, user_id:int, chat_id:int, start_ts:datetime, end_ts:datetime, connection=None) -> int:
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute(
-            "SELECT sum(amount) FROM self_contrib_record WHERE user_id = %s AND chat_id = %s AND ts >= %s AND ts <= %s", 
-            (user_id, chat_id, start_ts, end_ts))        
-        rows = ps_cursor.fetchall()    
-        if len(rows) == 1:               
-            if rows[0][0] is None:
-                return 0
-            return rows[0][0]
-        elif len(rows) > 1:
-            raise YSDBException("corrupted DB table")
-        return 0
-    
-    @ConnectionPool    
-    def GetChatAmountSum(self, chat_id:int, start_ts:datetime, end_ts:datetime, connection=None) -> int:
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute(
-            "SELECT sum(amount) FROM self_contrib_record WHERE chat_id = %s AND ts >= %s AND ts <= %s", 
-            (chat_id, start_ts, end_ts))        
-        rows = ps_cursor.fetchall()    
-        if len(rows) == 1:            
-            return rows[0][0] or 0
-        elif len(rows) > 1:
-            raise YSDBException("corrupted DB table")
-        return 0
-    
-    @ConnectionPool    
-    def GetChatActiveUserCount(self, chat_id:int, start_ts:datetime, end_ts:datetime, connection=None) -> int:
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute(
-            "SELECT COUNT(DISTINCT user_id) FROM self_contrib_record WHERE chat_id = %s AND ts >= %s AND ts <= %s GROUP BY chat_id", 
-            (chat_id, start_ts, end_ts))        
-        rows = ps_cursor.fetchall()    
-        if len(rows) == 1:            
-            return rows[0][0] or 0
-        elif len(rows) > 1:
-            raise YSDBException("corrupted DB table")
-        return 0    
-
-    @ConnectionPool    
-    def GetTop(self, chat_id:int, start_ts:datetime, end_ts:datetime, connection=None) -> list[ChatTopItem]:
+    def InsertFile(self, user_id:int, title:str,file_size:int, text_size:int, file_path:str, connection=None) -> FileInfo:
+        file_id = None
         ps_cursor = connection.cursor() 
-        query = "SELECT u.id, u.title, sum(scr.amount) "
-        query+= "FROM self_contrib_record as scr INNER JOIN sd_user as u ON scr.user_id = u.id "
-        query+= "WHERE ts >= %s AND ts <= %s AND chat_id = %s "
-        query+= "GROUP BY u.id ORDER BY sum(scr.amount) DESC LIMIT 30 OFFSET 0"
-        ps_cursor.execute(query, (start_ts, end_ts, chat_id))
-        rows = ps_cursor.fetchall() 
-        result = []
-        for row in rows:
-            result.append(ChatTopItem(row[1], row[2]))
+        ps_cursor.execute(
+            "INSERT INTO uploaded_file (user_id, title, file_size, text_size, file_path) VALUES (%s, %s, %s, %s, %s) RETURNING id", 
+            (user_id, title, file_size, text_size, file_path)) 
+        rows = ps_cursor.fetchall()
+        if len(rows) > 0:
+            file_id = rows[0][0]
+        connection.commit()
 
-        return result    
-
-
-
-
+        return self.FindFile(file_id)
 
 

@@ -11,3 +11,7 @@ class FileStorage:
     def GetFileFullPath(self, name:str) -> str:
 
         return os.path.join(self.Directory, self.MakeUniqueFileName(name))
+
+    def DeleteFileFullPath(self, file_path:str):
+        if os.path.exists(file_path):
+            os.remove(file_path)

@@ -1,5 +1,7 @@
 import docx
 import sys
+
+from litgb_exception import UnknownFileFormatException
  
 def GetParagraphs(doc:docx.Document) -> list[str]:
     result = []
@@ -8,8 +10,11 @@ def GetParagraphs(doc:docx.Document) -> list[str]:
     
     return result
 
+def NormalizeParagraph(par:str)->str:
+    return par
+
 def MakeParagraph(par:str)->str:
-    return "<p>"+par+"</p>"
+    return "<p>"+NormalizeParagraph(par)+"</p>"
 
 def MakeSection(pars:list[str], title:str)->str:
     result = "<section>\n<title><p>"+title+"</p></title>\n"
@@ -41,11 +46,25 @@ def MakeFB2(pars:list[str], title:str) -> str:
     return result
 
 def DocToFb2(source_filename:str, dest_filename:str, title:str):
-    doc = docx.Document(source_filename)
-    print("file loaded from : "+sys.argv[1])
+    doc = docx.Document(source_filename)    
     ps = GetParagraphs(doc)
     with open(dest_filename, 'w') as f:
         f.write(MakeFB2(ps, title))
+
+def GetDocTextSize(source_filename:str, dest_filename:str, title:str) -> int:
+    doc = docx.Document(source_filename)
+    result = 0
+    ps = GetParagraphs(doc)
+    for p in ps:
+        result += len(NormalizeParagraph(p))
+
+    return result
+
+def GetTextSize(filepath:str) -> int:
+    if filepath.endswith("docx"):
+        return GetDocTextSize(filepath)
+    
+    raise UnknownFileFormatException()
 	
 def main():
     DocToFb2(sys.argv[1], sys.argv[2], sys.argv[1])

@@ -9,6 +9,7 @@ from datetime import timedelta, datetime
 from litgb_exception import LitGBException
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
+from fb2_tool import GetTextSize
     
 def MakeHumanReadableAmount(value:int) -> str:     
     if value > 1000000:
@@ -46,9 +47,9 @@ class LitGBot:
         
         self.MyStatLimits = CommandLimits(0.7, 1.25)
         self.StatLimits = CommandLimits(1, 3)    
-        self.MaxFileSize = 1024*1024*256
-        self.FileStorage = file_stor
-        
+        self.MaxFileSize = 1024*256
+        self.FileTotalSizeLimit = 1024*1024*256
+        self.FileStorage = file_stor        
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -72,92 +73,7 @@ class LitGBot:
         result = ch.effective_name
         if (len(result) < 1):
             result = "@"+str(ch.id)
-        return result  
-
-    @staticmethod
-    def ParsePushMessage(msg:str) -> int:
-        try:
-            parts = msg.strip().split(" ", 1)
-            second_part = parts[1].strip()
-            koeff = 1
-            if second_part[-1] in ['k', 'K', 'к', 'К']:
-                second_part = second_part[:-1]
-                koeff = 1000
-            return int(second_part)*koeff
-        except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /push")     
-
-    @staticmethod
-    def ParseTopParamsAndValidate(msg:str) -> int:
-        result = None
-        try:
-            parts = msg.strip().split(" ", 1)
-            if len(parts) < 2:
-                return 7
-            else:
-                second_part = parts[1].strip()
-                result = int(second_part)
-        except BaseException as ex:
-            raise YSDBException("Некорректный формат команды /top")    
-        
-        if result < 2:
-            raise LitGBException("🚫 Топ меньше чем за 2 дня считать нельзя")            
-        if result > 180:
-            raise LitGBException("🚫 Топ больше чем за 180 дней считать нельзя") 
-        return result
-               
-    @staticmethod
-    def ParseStatParamsAndValidate(msg:str) -> int:
-
-        result = None
-        try:
-            parts = msg.strip().split(" ", 1)
-            if len(parts) < 2:
-                return 7
-            else:
-                second_part = parts[1].strip()
-                result = int(second_part)
-        except BaseException as ex:
-            raise YSDBException("Некорректный формат команды /stat")    
-        
-        if result < 2:
-            raise YSDBException("🚫 Стаститику меньше, чем за 1 день считать нельзя") 
-        return result
-
-    @staticmethod
-    def ParseMyStatType(msg:str) -> str:
-        try:
-            parts = msg.strip().split(" ", 1)            
-            return parts[1].strip().lower()
-        except BaseException as ex:
-            return ""
-    
-    def MakeShortStatBlock(self, user_id:int, chat_id:int) -> str:
-        result = "Количество за сутки: " + MakeHumanReadableAmount(self.Db.GetAmountSum(user_id, chat_id, datetime.now() - timedelta(days=1), datetime.now()))
-        result += "\nКоличество за неделю: " + MakeHumanReadableAmount(self.Db.GetAmountSum(user_id, chat_id, datetime.now() - timedelta(days=7), datetime.now()))
-        return result
-
-    def MakeLastPushingInfoBlock(self, user_id:int, chat_id:int, count:int) -> str:
-        result = "📑 Последние записи:\n"
-
-        result += self.MakeLastPushingInfo(user_id, chat_id, count)
-
-        return result
-    
-    def MakeTopBlock(self, chat_id:int, day_count:int) -> str:
-        result = "🏆 TОП за последние "+str(day_count)+" дней:\n"
-
-        top = self.Db.GetTop(chat_id, datetime.now() - timedelta(days=day_count), datetime.now())
-        
-        cc = 1
-        for item in top:
-            if cc > 1:
-                result += "\n"
-
-            result += "№"+str(cc) +" " + item.Title+" : "+MakeHumanReadableAmount(item.Amount)
-            cc += 1
-
-        return result        
+        return result              
 
     @staticmethod
     def MakeErrorMessage(ex: LitGBException) -> str:
@@ -169,82 +85,59 @@ class LitGBot:
           
 
     async def mystat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.info("[MYSTAT] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))    
+        logging.info("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
         if self.MyStatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[MYSTAT] Ignore command from user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))        
+            logging.warning("[MYSTAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
             return
         self.LastHandledMyStatCommand = time.time()
 
-        t = YSDBot.ParseMyStatType(update.message.text)
-        full = (t == "full")
-
         try:
-            stat_message = "Привет, " + YSDBot.MakeUserTitle(update.effective_user) + "!\n\n"
-            stat_message += self.MakeLastPushingInfoBlock(update.effective_user.id, update.effective_chat.id, 10 if full else 5)
+            stat_message = "в разработке"        
 
-            stat_message += "\n\n📊 Данные по знакам"
-            stat_message += "\nЗа последние сутки: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=1), datetime.now()))
-            #stat_message += "\nЗа последние 3 суток: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=3), datetime.now()))
-            stat_message += "\nЗа последние 7 суток: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=7), datetime.now()))
-            if full:
-                stat_message += "\nЗа последние 15 суток: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=15), datetime.now()))
-            stat_message += "\nЗа последние 30 суток: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=30), datetime.now()))
-            if full:
-                stat_message += "\nЗа всё время: "+MakeHumanReadableAmount(self.Db.GetAmountSum(update.effective_user.id, update.effective_chat.id, datetime.now() - timedelta(days=3600), datetime.now()))
-
-            if update.effective_user.id == update.effective_chat.id:
-                stat_message += "\n\n((Тут будет статистика по всем чатам))"
-
-            await update.message.reply_text(stat_message)     
-        except YSDBException as ex:
-            await update.message.reply_text(YSDBot.MakeErrorMessage(ex)) 
+            await update.message.reply_text(stat_message)    
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
         except BaseException as ex:    
-            logging.error("[MYSTAT] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(YSDBot.MakeExternalErrorMessage(ex))
+            logging.error("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))
 
 
 
     
 
     async def stat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
-        logging.info("[STAT] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))    
+        logging.info("[STAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
         if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[STAT] Ignore command from user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))                
-            return
-
-        try:
-            day_count = YSDBot.ParseStatParamsAndValidate(update.message.text)            
-            stat_message = "📊 Статистика за "+str(day_count)+" дней (чат " + YSDBot.MakeChatTitle(update.effective_chat) + ")\n"
-            total_amount = self.Db.GetChatAmountSum(update.effective_chat.id, datetime.now() - timedelta(days=day_count), datetime.now())
-            stat_message += "\nКоличество знаков по всем пользователям: "+MakeHumanReadableAmount(total_amount)
-            stat_message += "\nВ среднем за сутки: " + MakeHumanReadableAmount(total_amount/day_count)                     
-            stat_message += "\nПишуших участников: "+str(self.Db.GetChatActiveUserCount(update.effective_chat.id, datetime.now() - timedelta(days=day_count), datetime.now()))                     
-            stat_message += "\n\nℹ️ Чтобы получить топ по юзерам, введите команду /top (или /top <кол-во дней>, например, /top 25)"
-            await update.message.reply_text(stat_message)     
-        except YSDBException as ex:
-            await update.message.reply_text(YSDBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[STAT] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(YSDBot.MakeExternalErrorMessage(ex))  
-
-    async def top(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
-        logging.info("[TOP] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))    
-        if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[TOP] Ignore command from user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat))                
+            logging.warning("[STAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
             return
         self.LastHandledStatCommand = time.time()
 
         try:
-            day_count = YSDBot.ParseTopParamsAndValidate(update.message.text)
-            stat_message = self.MakeTopBlock(update.effective_chat.id, day_count)
-            #stat_message+= "\n\nДанные по чату: " + YSDBot.MakeChatTitle(update.effective_chat)         
+            stat_message = "в разработке"        
+
+            await update.message.reply_text(stat_message)      
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
+        except BaseException as ex:    
+            logging.error("[STAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))  
+
+    async def top(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
+        logging.info("[TOP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
+        if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[TOP] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
+            return
+        self.LastHandledStatCommand = time.time()
+
+        try:            
+            stat_message = "в разработке"        
 
             await update.message.reply_text(stat_message)     
-        except YSDBException as ex:
-            await update.message.reply_text(YSDBot.MakeErrorMessage(ex)) 
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
         except BaseException as ex:    
-            logging.error("[TOP] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+", chat id "+YSDBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(YSDBot.MakeExternalErrorMessage(ex))              
+            logging.error("[TOP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))              
 
     @staticmethod
     def get_help() -> str:
@@ -264,30 +157,80 @@ class LitGBot:
         #status_msg +="\nВерсия "+ str(uptime)
         await update.message.reply_text(status_msg)
 
+    def DeleteOldestFile(self, user_id:int) -> str|None:
+        """ return new deleted file title"""
+        file_list = self.Db.GetNotLockedFileList(user_id)
+
+        if len(file_list) > 0:
+            oldest_file = min(file_list, key = lambda x: x.Loaded)
+            self.FileStorage.DeleteFileFullPath(oldest_file.FilePath)
+            self.Db.ClearFilePath(oldest_file.Id)
+            return oldest_file.Title
+
+        return None
+
+    @staticmethod
+    def MakeFileTitle(filename:str) -> str:
+        return filename
+
     async def downloader(self, update, context):            
         logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user))    
 
-        try:
-            if not self.Db.IsUploadAllowedForUser(update.effective_user.id):
-                raise YSDBException("Вам не разрешена загрузка файлов")
+        file_full_path = None
+        try:            
+            total_files_Size = self.Db.GetFilesTotalSize()
+            if total_files_Size > self.FileTotalSizeLimit:
+                raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileTotalSizeLimit))
 
-            file = await context.bot.get_file(update.message.document)       
+            deleted_file_name = None
+            flimit = self.Db.GetUserFileLimit(update.effective_user.id)
+            if flimit < 1:
+                raise LitGBException("Вам не разрешена загрузка файлов")
             
+            cfile_count = self.Db.GetFileCount(update.effective_user.id)
+
+            if cfile_count >= flimit:
+                deleted_file_name = self.DeleteOldestFile(update.effective_user.id)
+                if not (deleted_file_name is None):
+                    cfile_count = self.Db.GetFileCount(update.effective_user.id)
+                    if cfile_count >= flimit:
+                        raise LitGBException("Достигнут лимит загруженных файлов")                
+                
+
+            file = await context.bot.get_file(update.message.document)             
             if file.file_size > self.MaxFileSize:
-                raise YSDBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
+                raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
             
             file_full_path = self.FileStorage.GetFileFullPath(file.file_path)
-            logging.info("[DOWNLOADER] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
-            await file.download_to_drive(file_full_path) 
-            logging.info("[DOWNLOADER] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" download success") 
+            file_title = self.MakeFileTitle(file.file_path)
+            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
+            await file.download_to_drive(file_full_path)             
+            text_size = GetTextSize(file_full_path)            
+            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" download success. Text size: "+str(text_size)) 
 
-            await update.message.reply_text("☑️ Файл успешно загружен. Имя файла: "+file.file_path)
-        except YSDBException as ex:
-            await update.message.reply_text(YSDBot.MakeErrorMessage(ex)) 
+            _ = self.Db.InsertFile(update.effective_user.id, file_title, file.file_size, text_size, file_full_path)
+            file_full_path = None
+
+            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+", text size: "+str(text_size)+". Insert to DB success") 
+
+            reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ MakeHumanReadableAmount(text_size)
+            if not (deleted_file_name is None):
+                reply_text += "\nБыл удалён файл "+ deleted_file_name
+            await update.message.reply_text(reply_text)            
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
         except BaseException as ex:    
-            logging.error("[DOWNLOADER] user id "+YSDBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(YSDBot.MakeExternalErrorMessage(ex))         
+            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))         
+        finally:
+            if not (file_full_path is None):
+                self.FileStorage.DeleteFileFullPath(file_full_path)
 
+    async def filelist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
+        logging.info("[FILELIST] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if update.effective_user.id != update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
+            
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -313,7 +256,8 @@ if __name__ == '__main__':
 
     bot = LitGBot(db, file_str)
 
-    app.add_handler(CommandHandler("status", bot.status))    
+    app.add_handler(CommandHandler("status", bot.status))
+    app.add_handler(CommandHandler("filelist", bot.filelist))
     app.add_handler(CommandHandler("mystat", bot.mystat))
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
