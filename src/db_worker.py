@@ -27,7 +27,7 @@ class ChatTopItem:
         self.Amount = amount        
 
 class FileInfo:
-    def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None ):
+    def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None, owner:int):
         self.Id = id
         self.Title = title
         self.Size = size             
@@ -35,6 +35,7 @@ class FileInfo:
         self.Locked = locked
         self.Loaded = loaded
         self.FilePath = file_path
+        self.Owner = owner
 
 
 class DbWorkerService:   
@@ -98,9 +99,9 @@ class DbWorkerService:
 
 
     @ConnectionPool    
-    def GetFileList(self, user_id:int, connection=None) -> list[FileInfo]:
+    def GetFileList(self, user_id:int, limit:int, connection=None) -> list[FileInfo]:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL", (user_id, ))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL LIMIT %s", (user_id, limit))        
         rows = ps_cursor.fetchall()
 
         result = []
@@ -124,11 +125,11 @@ class DbWorkerService:
     @ConnectionPool    
     def FindFile(self, id:int, connection=None) -> FileInfo|None:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE id = %s", (id, ))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE id = %s", (id, ))        
         rows = ps_cursor.fetchall()
 
         if len(rows) > 0: 
-            return FileInfo(rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4], rows[0][5], rows[0][5])
+            return FileInfo(rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4], rows[0][5], rows[0][6], rows[0][7])
 
         return None    
     

@@ -51,6 +51,12 @@ def DocToFb2(source_filename:str, dest_filename:str, title:str):
     with open(dest_filename, 'w') as f:
         f.write(MakeFB2(ps, title))
 
+def FileToFb2(source_filename:str, dest_filename:str, title:str):
+    if source_filename.endswith("docx"):
+        return DocToFb2(source_filename, dest_filename, title)
+    
+    raise UnknownFileFormatException()
+
 def GetDocTextSize(source_filename:str, dest_filename:str, title:str) -> int:
     doc = docx.Document(source_filename)
     result = 0

@@ -1,7 +1,7 @@
 from telegram import Update, User, Chat
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 import argparse
-from db_worker import DbWorkerService
+from db_worker import DbWorkerService, FileInfo
 import logging
 import json
 import time
@@ -9,7 +9,7 @@ from datetime import timedelta, datetime
 from litgb_exception import LitGBException
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
-from fb2_tool import GetTextSize
+from fb2_tool import GetTextSize, FileToFb2
     
 def MakeHumanReadableAmount(value:int) -> str:     
     if value > 1000000:
@@ -49,7 +49,8 @@ class LitGBot:
         self.StatLimits = CommandLimits(1, 3)    
         self.MaxFileSize = 1024*256
         self.FileTotalSizeLimit = 1024*1024*256
-        self.FileStorage = file_stor        
+        self.FileStorage = file_stor  
+        self.MaxFileNameSize = 280
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -157,14 +158,17 @@ class LitGBot:
         #status_msg +="\nВерсия "+ str(uptime)
         await update.message.reply_text(status_msg)
 
+    def DeleteFile(self, f:FileInfo):
+        self.FileStorage.DeleteFileFullPath(f.FilePath)
+        self.Db.ClearFilePath(f.Id)
+
     def DeleteOldestFile(self, user_id:int) -> str|None:
         """ return new deleted file title"""
         file_list = self.Db.GetNotLockedFileList(user_id)
 
         if len(file_list) > 0:
             oldest_file = min(file_list, key = lambda x: x.Loaded)
-            self.FileStorage.DeleteFileFullPath(oldest_file.FilePath)
-            self.Db.ClearFilePath(oldest_file.Id)
+            self.DeleteFile(oldest_file)
             return oldest_file.Title
 
         return None
@@ -181,6 +185,8 @@ class LitGBot:
             total_files_Size = self.Db.GetFilesTotalSize()
             if total_files_Size > self.FileTotalSizeLimit:
                 raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileTotalSizeLimit))
+            
+            self.Db.EnsureUserExists(update.effective_user.id)
 
             deleted_file_name = None
             flimit = self.Db.GetUserFileLimit(update.effective_user.id)
@@ -203,6 +209,9 @@ class LitGBot:
             
             file_full_path = self.FileStorage.GetFileFullPath(file.file_path)
             file_title = self.MakeFileTitle(file.file_path)
+            if file_title > self.MaxFileNameSize:
+                raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
+            
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
             await file.download_to_drive(file_full_path)             
             text_size = GetTextSize(file_full_path)            
@@ -226,11 +235,85 @@ class LitGBot:
             if not (file_full_path is None):
                 self.FileStorage.DeleteFileFullPath(file_full_path)
 
+    @staticmethod
+    def LockedMark(l:bool) ->str:
+        if l:
+            return "🔒 "
+        
+        return ""
+    
+    @staticmethod
+    def FileSizeCaption(f:FileInfo) ->str:        
+        return "Текст "+MakeHumanReadableAmount(f.TextSize)+ "(Файл: "+MakeHumanReadableAmount(f.Size)+")"
+
+    @staticmethod
+    def MakeFileListItem(f:FileInfo) -> str:
+        return LitGBot.LockedMark(f.Locked) + "#"+str(f.Id) + ": " +f.Title+" | "+LitGBot.FileSizeCaption(f)
+
     async def filelist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILELIST] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         if update.effective_user.id != update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
-            
+
+        try:
+            files = self.Db.GetFileList(update.effective_user.id, 30)
+            files.sort(key=lambda x: x.Loaded)
+
+            reply_text = "Список файлов\n"
+            for file in files:
+                reply_text += "\n"+self.MakeFileListItem(file)
+
+            await update.message.reply_text(reply_text)   
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
+        except BaseException as ex:    
+            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex)) 
+
+    @staticmethod
+    def ParseGetFB2Command(msg:str) -> int:
+        result = None
+        try:
+            parts = msg.strip().split(" ", 1)
+            if len(parts) < 2:
+                raise LitGBException("Некорректный формат команды /getfb2")
+            else:
+                second_part = parts[1].strip()
+                result = int(second_part)                
+        except BaseException as ex:
+            raise LitGBException("Некорректный формат команды /getfb2")        
+
+        return result        
+
+    async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
+        logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if update.effective_user.id != update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
+
+        fb2_filepath = None
+        try:
+            file_id = self.ParseGetFB2Command(update.message.text)
+            file = self.Db.FindFile(file_id)
+            if file is None:
+                await update.message.reply_text("Файл с указанным идентификатором не найден")
+            if (file.Owner != update.effective_user.id) or (file.FilePath is None):
+                await update.message.reply_text("Файл с указанным идентификатором не найден")
+
+            fb2_name = file.Title+".fb2"
+            fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
+            FileToFb2(file.FilePath, fb2_filepath, file.Title)
+
+            file_obj = open(fb2_filepath, "rb")
+            await context.bot.send_document(update.effective_chat.id, file_obj, fb2_name)
+            fb2_filepath = None
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
+        except BaseException as ex:    
+            logging.error("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))             
+        finally:
+            if not (fb2_filepath is None):
+                self.FileStorage.DeleteFileFullPath(fb2_filepath)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -258,10 +341,13 @@ if __name__ == '__main__':
 
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
+    app.add_handler(CommandHandler("getfb2", bot.getfb2))
     app.add_handler(CommandHandler("mystat", bot.mystat))
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))
+
+    #https://stackoverflow.com/questions/51125356/proper-way-to-build-menus-with-python-telegram-bot
 
     app.run_polling()
 
