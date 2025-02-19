@@ -1,2 +1,3 @@
 penv
 src/__pycache__
+test/tconf.json

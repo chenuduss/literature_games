@@ -42,8 +42,8 @@ class CompetitionInfo:
             chat_id:int, 
             created:datetime, 
             created_by:int, 
-            confirmed:datetime, 
-            started:datetime, 
+            confirmed:datetime|None, 
+            started:datetime|None, 
             accept_files_deadline:datetime,
             polling_deadline:datetime,
             entry_token:str,
@@ -53,8 +53,9 @@ class CompetitionInfo:
             subject:str,
             subject_ext:str|None,
             max_files_per_member:int,
-            polling:bool,
-            finished:bool):
+            polling_started:datetime|None = None,
+            finished:datetime|None = None,
+            canceled:bool = False):
         self.Id = id
         self.ChatId = chat_id
         self.Created = created             
@@ -70,8 +71,9 @@ class CompetitionInfo:
         self.Subject = subject
         self.SubjectExt = subject_ext
         self.MaxFilesPerMember = max_files_per_member
-        self.Polling = polling
+        self.PollingStarted = polling_started
         self.Finished = finished
+        self.Canceled = canceled
 
 
 class DbWorkerService:   
@@ -226,7 +228,7 @@ class DbWorkerService:
     @ConnectionPool    
     def FindCompetition(self, id:int, connection=None) -> CompetitionInfo|None:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling, finished FROM competition WHERE id = %s", (id, ))        
+        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE id = %s", (id, ))        
         rows = ps_cursor.fetchall()
 
         if len(rows) > 0: 
@@ -247,8 +249,62 @@ class DbWorkerService:
                 rows[0][13],
                 rows[0][14],
                 rows[0][15],
-                rows[0][16])
+                rows[0][16],
+                rows[0][17])
 
         return None   
+    
+    @ConnectionPool    
+    def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE chat_id = %s AND finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
+        rows = ps_cursor.fetchall()
 
+        result = []
+        for row in rows: 
+            return CompetitionInfo(
+                row[0], 
+                chat_id,
+                row[1], 
+                row[2], 
+                row[3], 
+                row[4], 
+                row[5],
+                row[6], 
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[12],
+                row[13],
+                row[14],
+                row[15],
+                row[16])
 
+        return result  
+
+    @ConnectionPool    
+    def CreateCompetition(self, 
+            user_id:int, 
+            chat_id:int|None,
+            accept_files_deadline:datetime, 
+            polling_deadline:datetime, 
+            entry_token:str, 
+            min_text_size:int,
+            max_text_size:int,
+            declared_member_count:int|None,
+            subject:str,            
+            connection=None) -> CompetitionInfo:
+        comp_id = None
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute(
+            "INSERT INTO uploaded_file (chat_id, created_by, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
+            (chat_id, user_id, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject)) 
+        rows = ps_cursor.fetchall()
+        if len(rows) > 0:
+            comp_id = rows[0][0]
+        connection.commit()
+
+        return self.FindCompetition(comp_id)
