@@ -163,7 +163,7 @@ class LitGBot:
         uptime = timedelta(seconds = uptime_sec)
         status_msg +="\nАптайм "+ str(uptime)
         status_msg +="\nФайлы: "+str(self.Db.GetFileTotalCount())+ ". Суммарный размер: "+ MakeHumanReadableAmount(self.Db.GetFilesTotalSize())
-        status_msg +="\nЛимит хранилища: " + MakeHumanReadableAmount(self.FileTotalSizeLimit)
+        status_msg +="\nЛимит хранилища: " + MakeHumanReadableAmount(self.FileStorage.FileTotalSizeLimit)
         status_msg += "\n\n"+ LitGBot.get_help()
 
         #status_msg +="\nВерсия "+ str(uptime)
@@ -211,8 +211,8 @@ class LitGBot:
         file_full_path = None
         try:            
             total_files_Size = self.Db.GetFilesTotalSize()
-            if total_files_Size > self.FileTotalSizeLimit:
-                raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileTotalSizeLimit))
+            if total_files_Size > self.FileStorage.FileTotalSizeLimit:
+                raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileStorage.FileTotalSizeLimit))
             
             self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
 
