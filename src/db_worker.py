@@ -25,6 +25,11 @@ class ChatTopItem:
         self.Title = title
         self.Amount = amount        
 
+class UserInfo:
+    def __init__(self, id:int, title:str):
+        self.Id = id
+        self.Title = title
+
 class FileInfo:
     def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None, owner:int):
         self.Id = id
@@ -74,6 +79,19 @@ class CompetitionInfo:
         self.PollingStarted = polling_started
         self.Finished = finished
         self.Canceled = canceled
+
+class CompetitionStat:
+    def __init__(self, 
+            comp_id:int,             
+            registered_members:list[UserInfo], 
+            submitted_member_count:int, 
+            submitted_file_count:int, 
+            total_submitted_text_size:int):
+        self.CompId = comp_id
+        self.RegisteredMembers = registered_members
+        self.SubmittedMemberCount:int = submitted_member_count
+        self.SubmittedFileCount:int = submitted_file_count
+        self.TotalSubmittedTextSize = total_submitted_text_size
 
 
 class DbWorkerService:   
@@ -283,7 +301,38 @@ class DbWorkerService:
                 row[15],
                 row[16])
 
-        return result  
+        return result
+    
+    @ConnectionPool    
+    def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE chat_id = %s AND finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            return CompetitionInfo(
+                row[0], 
+                row[1], 
+                row[2], 
+                row[3], 
+                row[4], 
+                row[5],
+                row[6], 
+                row[7],
+                row[8],
+                row[9],
+                row[10],
+                row[11],
+                row[12],
+                row[13],
+                row[14],
+                row[15],
+                row[16],
+                row[17])
+
+        return result      
 
     @ConnectionPool    
     def CreateCompetition(self, 
@@ -300,11 +349,27 @@ class DbWorkerService:
         comp_id = None
         ps_cursor = connection.cursor() 
         ps_cursor.execute(
-            "INSERT INTO uploaded_file (chat_id, created_by, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
+            "INSERT INTO competition (chat_id, created_by, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
             (chat_id, user_id, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject)) 
         rows = ps_cursor.fetchall()
         if len(rows) > 0:
             comp_id = rows[0][0]
         connection.commit()
 
-        return self.FindCompetition(comp_id)
+        return self.FindCompetition(comp_id)   
+
+    @ConnectionPool    
+    def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:
+        pass
+    
+    @ConnectionPool    
+    def JoinToCompetition(self, comp_id:int, user_id:int, connection=None) -> CompetitionStat:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT comp_id FROM competition_member WHERE comp_id = %s AND user_id = %s", (comp_id, user_id))        
+        rows = ps_cursor.fetchall()
+
+        if len(rows) == 0:
+            ps_cursor.execute("INSERT INTO competition_member (comp_id, user_id) VALUES(%s, %s)", (comp_id, user_id)) 
+            connection.commit()  
+
+        return self.GetCompetitionStat(comp_id)
