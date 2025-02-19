@@ -10,9 +10,12 @@ CREATE TABLE competition (
     entry_token text,
     min_text_size int NOT NULL,
     max_text_size int NOT NULL,
-    member_count int,
+    declared_member_count int,
     subject text NOT NULL,
     subject_ext text,
+    max_files_per_member int NOT NULL DEFAULT 1;
+    polling boolean NOT NULL DEFAULT FALSE,
+    finished boolean NOT NULL DEFAULT FALSE,
     FOREIGN KEY (chat_id) REFERENCES chat (id),
     FOREIGN KEY (created_by) REFERENCES sd_user (id),
 );

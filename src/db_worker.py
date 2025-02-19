@@ -36,6 +36,43 @@ class FileInfo:
         self.FilePath = file_path
         self.Owner = owner
 
+class CompetitionInfo:
+    def __init__(self, 
+            id: int, 
+            chat_id:int, 
+            created:datetime, 
+            created_by:int, 
+            confirmed:datetime, 
+            started:datetime, 
+            accept_files_deadline:datetime,
+            polling_deadline:datetime,
+            entry_token:str,
+            min_text_size:int,
+            max_text_size:int,
+            declared_member_count:int|None,
+            subject:str,
+            subject_ext:str|None,
+            max_files_per_member:int,
+            polling:bool,
+            finished:bool):
+        self.Id = id
+        self.ChatId = chat_id
+        self.Created = created             
+        self.CreatedBy = created_by
+        self.Confirmed = confirmed
+        self.Started = started
+        self.AcceptFilesDeadline = accept_files_deadline
+        self.PollingDeadline = polling_deadline
+        self.EntryToken = entry_token
+        self.MinTextSize = min_text_size
+        self.MaxTextSize = max_text_size
+        self.DeclaredMemberCount = declared_member_count
+        self.Subject = subject
+        self.SubjectExt = subject_ext
+        self.MaxFilesPerMember = max_files_per_member
+        self.Polling = polling
+        self.Finished = finished
+
 
 class DbWorkerService:   
     def __init__(self, config:dict):
@@ -107,16 +144,28 @@ class DbWorkerService:
             return 0
         return rows[0][0]    
 
-
     @ConnectionPool    
-    def GetFileList(self, user_id:int, limit:int, connection=None) -> list[FileInfo]:
+    def GetNotLockedFileListBefore(self, loaded_before:datetime, connection=None) -> list[FileInfo]:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL LIMIT %s", (user_id, limit))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE ts < %s AND file_path IS NOT NULL LIMIT %s", (loaded_before, ))        
         rows = ps_cursor.fetchall()
 
         result = []
         for row in rows:
             result.append(FileInfo(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]))
+
+        return result
+
+
+    @ConnectionPool    
+    def GetFileList(self, user_id:int, limit:int, connection=None) -> list[FileInfo]:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path FROM uploaded_file WHERE user_id = %s AND file_path IS NOT NULL LIMIT %s", (user_id, limit))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append(FileInfo(row[0], row[1], row[2], row[3], row[4], row[5], row[6], user_id))
 
         return result
     
@@ -173,5 +222,33 @@ class DbWorkerService:
         connection.commit()
 
         return self.FindFile(file_id)
+    
+    @ConnectionPool    
+    def FindCompetition(self, id:int, connection=None) -> CompetitionInfo|None:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling, finished FROM competition WHERE id = %s", (id, ))        
+        rows = ps_cursor.fetchall()
+
+        if len(rows) > 0: 
+            return CompetitionInfo(
+                rows[0][0], 
+                rows[0][1], 
+                rows[0][2], 
+                rows[0][3], 
+                rows[0][4], 
+                rows[0][5],
+                rows[0][6], 
+                rows[0][7],
+                rows[0][8],
+                rows[0][9],
+                rows[0][10],
+                rows[0][11],
+                rows[0][12],
+                rows[0][13],
+                rows[0][14],
+                rows[0][15],
+                rows[0][16])
+
+        return None   
 
 

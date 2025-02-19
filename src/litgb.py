@@ -38,7 +38,7 @@ class CommandLimits:
         else:
             self.ChatLimits[chat_id] = t    
         
-        self.LastHandledStatCommand = t
+        self.LastHandled = t
         return False       
 
 class UserConversation:
@@ -48,12 +48,16 @@ class UserConversation:
 class LitGBot:
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
         self.Db = db_worker
-        self.StartTS = int(time.time())        
+        self.StartTS = int(time.time())       
         
+        self.CompetitionChangeLimits = CommandLimits(1, 3)
+        self.CompetitionViewLimits = CommandLimits(0.7, 3)
+        self.CreateCompetitionLimits = CommandLimits(10, 30)
+        self.UploadFilesLimits = CommandLimits(3, 10)
+        self.FilesViewLimits = CommandLimits(1, 3)
         self.MyStatLimits = CommandLimits(0.7, 1.25)
-        self.StatLimits = CommandLimits(1, 3)    
-        self.MaxFileSize = 1024*256
-        self.FileTotalSizeLimit = 1024*1024*256
+        self.StatLimits = CommandLimits(1, 3)
+        
         self.FileStorage = file_stor  
         self.MaxFileNameSize = 280
         self.UserConversations:dict[int, UserConversation] = {}
@@ -96,7 +100,6 @@ class LitGBot:
         if self.MyStatLimits.Check(update.effective_user.id, update.effective_chat.id):
             logging.warning("[MYSTAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
             return
-        self.LastHandledMyStatCommand = time.time()
 
         try:
             stat_message = "в разработке"        
@@ -117,7 +120,7 @@ class LitGBot:
         if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
             logging.warning("[STAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
             return
-        self.LastHandledStatCommand = time.time()
+
 
         try:
             stat_message = "в разработке"        
@@ -134,7 +137,7 @@ class LitGBot:
         if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
             logging.warning("[TOP] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
             return
-        self.LastHandledStatCommand = time.time()
+
 
         try:            
             stat_message = "в разработке"        
@@ -167,6 +170,7 @@ class LitGBot:
         await update.message.reply_text(status_msg)
 
     def DeleteFile(self, f:FileInfo):
+        logging.warning("[FILESTORAGE] delete file #"+str(f.Id))
         self.FileStorage.DeleteFileFullPath(f.FilePath)
         self.Db.ClearFilePath(f.Id)
 
@@ -180,6 +184,16 @@ class LitGBot:
             return oldest_file.Title
 
         return None
+    
+    def DeleteOldFiles(self) -> None:
+
+        try:
+            file_list = self.Db.GetNotLockedFileListBefore(datetime.now() - self.FileStorage.RetentionPeriod)
+            for file in file_list:                
+                self.DeleteFile(file)
+        except BaseException as ex:
+            logging.error("[FILESTORAGE] exception on delete file: "+str(ex)) 
+
 
     @staticmethod
     def MakeFileTitle(filename:str) -> str:
@@ -187,6 +201,12 @@ class LitGBot:
 
     async def downloader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):            
         logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user))    
+        if self.UploadFilesLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[DOWNLOADER] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+            
+
+        self.DeleteOldFiles()
 
         file_full_path = None
         try:            
@@ -212,8 +232,8 @@ class LitGBot:
                 
 
             file = await context.bot.get_file(update.message.document)             
-            if file.file_size > self.MaxFileSize:
-                raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.MaxFileSize))
+            if file.file_size > self.FileStorage.MaxFileSize:
+                raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.FileStorage.MaxFileSize))
             
             _, ext = os.path.splitext(file.file_path)
 
@@ -268,6 +288,12 @@ class LitGBot:
 
     async def filelist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILELIST] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return        
+
+        self.DeleteOldFiles()      
+
         if update.effective_user.id != update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
 
@@ -326,7 +352,11 @@ class LitGBot:
 
 
     async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
-        logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user))         
+        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return         
+        self.DeleteOldFiles() 
         if update.effective_user.id != update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
         
@@ -446,6 +476,10 @@ class LitGBot:
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return 
+        self.DeleteOldFiles() 
         if update.effective_user.id != update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
         
@@ -482,6 +516,46 @@ class LitGBot:
             logging.error("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                    
 
+    async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[CREATECLOSED] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+        
+    async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[CREATEOPEN] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+        
+    async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[ATTACHCOMP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[ATTACHCOMP] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return    
+        if update.effective_user.id == update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+
+        
+    async def competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[COMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+        
+        # в конфе - список конкурсов связанных с этим чатом. Режим: только просмотр
+        # в личке - список конкурсов в которым можно присоединиться. Режим: просмотр и возможность присоединиться
+        
+    async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
+            logging.warning("[MYCOMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+        if update.effective_user.id != update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")          
+
+        # список конкурсов, в которых юзер участвует или создал
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
@@ -498,7 +572,7 @@ if __name__ == '__main__':
         conf = json.load(file)
 
        
-    file_str = FileStorage(conf['files_dir'])
+    file_str = FileStorage(conf['file_storage'])
 
     db = DbWorkerService(conf['db'])
 
@@ -513,6 +587,11 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("mystat", bot.mystat))
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
+    app.add_handler(CommandHandler("create_closed_competition", bot.create_closed_competition))
+    app.add_handler(CommandHandler("create_open_competition", bot.create_open_competition))
+    app.add_handler(CommandHandler("attach_competition", bot.attach_competition))
+    app.add_handler(CommandHandler("competitions", bot.competitions))    
+    app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
     

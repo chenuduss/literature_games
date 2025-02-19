@@ -7,5 +7,9 @@
         "password": "****"
     },
     "bot_token": "*****",
-    "files_dir": "/tmp"
+    "file_storage": {
+        "directory": "/tmp",
+        "max_file_size": 256000,
+        "files_total_size_limit": 256000000
+    }
 }
