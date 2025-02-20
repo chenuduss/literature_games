@@ -57,6 +57,7 @@ class CommandRateLimitReached(LitGBException):
 class UserConversation:
     def __init__(self): 
         self.SetTitleFor = None
+        self.SetSubjectFor = None
 
 class LitGBot:
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
@@ -76,6 +77,7 @@ class LitGBot:
         self.UserConversations:dict[int, UserConversation] = {}
 
         self.JoinToCompetitionCommandRegex = re.compile("/join\\s+(\\d+)\\s+(\\S+)")
+        self.CompetitionMenuQueryRegex = re.compile("comp_(\\S+)_(\\S+)_(\\d+)")
 
         self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=15)
         self.DefaultPollingStageTimedelta = timedelta(minutes=15)
@@ -146,6 +148,10 @@ class LitGBot:
     @staticmethod
     def get_help() -> str:
         result = "Команды: "
+        result += "/competitions - список активных конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
+        result += "/joinable_competitions - список конкурсов, к которым можно присоединиться"
+        result += "/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
+        
         return result
 
     async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -449,7 +455,7 @@ class LitGBot:
             await query.edit_message_text(
                 text=self.error_menu_message(ex), reply_markup=InlineKeyboardMarkup([]))                    
         except BaseException as ex:    
-            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            logging.error("[file_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([])) 
 
@@ -697,7 +703,86 @@ class LitGBot:
             logging.warning("Exception traceback:" + tb_string)            
             await update.message.reply_text(self.MakeExternalErrorMessage(context.error))
             return
+        
 
+    def ParseCompetitionMenuQuery(self, query:str) -> tuple[str, str, int]:
+        try:
+            m = self.CompetitionMenuQueryRegex.match(query)
+            return (m.group(1), m.group(2), int(m.group(3)))
+        except BaseException as ex:
+            raise LitGBException("invalid comp menu query")  
+
+    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo]):
+
+        keyboard = []
+
+        list_buttons_line = []
+        if comp_index > 0:
+            list_buttons_line.append(InlineKeyboardButton('<=', callback_data='comp_'+list_type+'_show_'+str(comp_list[comp_index-1].Id)))
+        if comp_index < len(comp_list)-1:
+            list_buttons_line.append(InlineKeyboardButton('=>', callback_data='comp_'+list_type+'_show_'+str(comp_list[comp_index+1].Id)))
+        if len(list_buttons_line) > 0:
+            keyboard.append(list_buttons_line)  
+        ###
+
+
+
+        return InlineKeyboardMarkup(keyboard)
+       
+
+    #list_type
+    def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
+        pass
+
+    async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
+        logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+
+        query = update.callback_query      
+
+        await query.answer()
+        try:
+            (list_type, action, comp_id) = self.ParseCompetitionMenuQuery(query.data)
+
+            if action == "show":
+                comp = self.Db.FindCompetition(comp_id)          
+                if comp is None:
+                    raise CompetitionNotFound(comp_id)
+                comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
+                
+                file_index = -1
+                for i, v in enumerate(comp_list): 
+                    if v.Id == comp.Id:
+                        file_index = i
+                        break
+
+                if file_index < 0:
+                    raise LitGBException("competition not found in competition list")
+                
+                await query.edit_message_text(
+                            text=self.comз_menu_message(f),
+                            reply_markup=self.comp_menu_keyboard(file_index, comp_list))
+            elif action == "cancel":  
+                pass
+            elif action == "setsubject":  
+                
+                uconv = UserConversation()
+                uconv.SetSubjectFor = f.Id
+                self.UserConversations[update.effective_user.id] = uconv
+                await query.edit_message_text(
+                    text="Введите новое тему", reply_markup=InlineKeyboardMarkup([]))                
+            elif action == "join":
+                pass
+            elif action == "leave":
+                pass
+            else:
+                raise LitGBException("unknown menu action: "+action)
+        except LitGBException as ex:
+            await query.edit_message_text(
+                text=self.error_menu_message(ex), reply_markup=InlineKeyboardMarkup([]))                    
+        except BaseException as ex:    
+            logging.error("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await query.edit_message_text(
+                text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -738,6 +823,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
+    app.add_handler(CallbackQueryHandler(bot.comp_menu_handler, pattern="comp_\\S+"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    

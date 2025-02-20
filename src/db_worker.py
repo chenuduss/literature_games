@@ -30,6 +30,12 @@ class UserInfo:
         self.Id = id
         self.Title = title
 
+    def __eq__(self, other):
+        return self.Id == other.Id
+
+    def __ne__(self, other):
+        return not self.__eq__(other)        
+
 class FileInfo:
     def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None, owner:int):
         self.Id = id
@@ -90,12 +96,12 @@ class CompetitionStat:
     def __init__(self, 
             comp_id:int,             
             registered_members:list[UserInfo], 
-            submitted_member_count:int, 
+            submitted_members:list[UserInfo], 
             submitted_file_count:int, 
             total_submitted_text_size:int):
         self.CompId = comp_id
         self.RegisteredMembers = registered_members
-        self.SubmittedMemberCount:int = submitted_member_count
+        self.SubmittedMembers = submitted_members
         self.SubmittedFileCount:int = submitted_file_count
         self.TotalSubmittedTextSize = total_submitted_text_size
 
@@ -382,7 +388,29 @@ class DbWorkerService:
 
     @ConnectionPool    
     def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:
-        pass
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute(
+            "SELECT u.id, u.title, uf.text_size FROM "+
+            "competition_member as cm "+
+            "INNER JOIN sd_user AS u ON cm.user_id = u.id uploaded_file "+
+            "LEFT OUTER JOIN uploaded_file AS uf ON cm.file_id = uf.id "
+            "WHERE comp_id = %s", (comp_id, ))
+        rows = ps_cursor.fetchall()
+
+        registered_users = set()
+        total_text_size = 0
+        file_count = 0
+        submitted_members = set()
+        for row in rows:
+            usr = UserInfo(row[0], row[1])
+            registered_users.add(usr)
+            if not (row[2] is None):
+                submitted_members.add(usr)
+                file_count += 1
+                total_text_size += row[2]
+
+        return CompetitionStat(comp_id, list(registered_users), list(submitted_members), file_count, total_text_size)
+        
     
     @ConnectionPool    
     def JoinToCompetition(self, comp_id:int, user_id:int, connection=None) -> CompetitionStat:
