@@ -51,7 +51,7 @@ class CompetitionInfo:
             started:datetime|None, 
             accept_files_deadline:datetime,
             polling_deadline:datetime,
-            entry_token:str,
+            entry_token:str|None,
             min_text_size:int,
             max_text_size:int,
             declared_member_count:int|None,
@@ -79,6 +79,12 @@ class CompetitionInfo:
         self.PollingStarted = polling_started
         self.Finished = finished
         self.Canceled = canceled
+
+    def IsOpenType(self) -> bool:
+        return self.DeclaredMemberCount is None
+
+    def IsClosedType(self) -> bool:
+        return not self.IsOpenType()
 
 class CompetitionStat:
     def __init__(self, 
@@ -357,6 +363,22 @@ class DbWorkerService:
         connection.commit()
 
         return self.FindCompetition(comp_id)   
+    
+    @ConnectionPool    
+    def ConfirmCompetition(self, comp_id:int,connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET confirmed = (current_timestamp AT TIME ZONE 'UTC') WHERE id = %s ", (comp_id, )) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)
+
+    @ConnectionPool    
+    def AttachCompetition(self, comp_id:int, chat_id:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET chat_id = %s WHERE id = %s ", (chat_id, comp_id)) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)              
 
     @ConnectionPool    
     def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:

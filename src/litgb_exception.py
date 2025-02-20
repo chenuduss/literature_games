@@ -18,3 +18,11 @@ class LitGBException(Exception):
 class UnknownFileFormatException(LitGBException):
     def __init__(self, ext:str|None = None):
         LitGBException.__init__(self, "Неизвестный формат файла"+ ("" if ext is None else (": "+ext)))
+
+class FileNotFound(LitGBException):
+    def __init__(self, id:int):
+        LitGBException.__init__(self, "Файла с идентификатором "+str(id)+" не найден")
+
+class CompetitionNotFound(LitGBException):
+    def __init__(self, id:int):
+        LitGBException.__init__(self, "Конкурс с идентификатором "+str(id)+" не найден")             

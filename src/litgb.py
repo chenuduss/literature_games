@@ -1,13 +1,13 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat
 import logging
 import json
 import time
 import os
 from datetime import timedelta, datetime
-from litgb_exception import LitGBException
+from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
 from fb2_tool import GetTextSize, FileToFb2
@@ -71,6 +71,12 @@ class LitGBot:
         self.UserConversations:dict[int, UserConversation] = {}
 
         self.JoinToCompetitionCommandRegex = re.compile("/join\\s+(\\d+)\\s+(\\S+)")
+
+        self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=15)
+        self.DefaultPollingStageTimedelta = timedelta(minutes=15)
+
+        self.DefaultMinTextSize = 15000
+        self.DefaultMaxTextSize = 40000
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -323,27 +329,31 @@ class LitGBot:
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex)) 
 
     @staticmethod
-    def ParseGetFB2Command(msg:str) -> int:
+    def ParseSingleIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> int: 
         result = None
         try:
             parts = msg.strip().split(" ", 1)
             if len(parts) < 2:
-                raise LitGBException("Некорректный формат команды /getfb2")
+                raise LitGBException("Некорректный формат команды "+command)
             else:
                 second_part = parts[1].strip()
-                result = int(second_part)                
+                result = int(second_part) 
+                if not (min is None):
+                    if result < min:
+                        raise LitGBException("Разрешённое минимальное значение команды "+str(min))
+                if not (max is None):    
+                    if  result > max:
+                        raise LitGBException("Разрешённое максимальное значение команды "+str(min))
         except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /getfb2")        
-
-        return result    
+            raise LitGBException("Некорректный формат команды "+command)
 
 
     def GetFileAndCheckAccess(self, file_id:int, user_id:int) -> FileInfo:
         result = self.Db.FindFile(file_id)
         if result is None:
-            raise LitGBException("Файл с указанным идентификатором не найден")
+            raise FileNotFound(file_id)
         if (result.Owner != user_id) or (result.FilePath is None):
-            raise LitGBException("Файл с указанным идентификатором не найден")
+            raise FileNotFound(file_id)
         return result
     
     async def SendFB2(self, f:FileInfo, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -371,7 +381,7 @@ class LitGBot:
             await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
         
         try:
-            file_id = self.ParseGetFB2Command(update.message.text)
+            file_id = self.ParseSingleIntArgumentCommand(update.message.text, "/getfb2", 1, None)
             file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
 
             await self.SendFB2(file, update, context)
@@ -526,28 +536,12 @@ class LitGBot:
             logging.error("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                    
 
-    @staticmethod
-    def ParseCreateClosedCompetitionCommand(msg:str) -> int:
-        result = None
-        try:
-            parts = msg.strip().split(" ", 1)
-            if len(parts) < 2:
-                raise LitGBException("Некорректный формат команды /create_closed_competition")
-            else:
-                second_part = parts[1].strip()
-                result = int(second_part) 
-                if result < 2:
-                    raise LitGBException("Закрытый конкурс может быть минимум для двух участников")
-                elif result > 15:
-                    raise LitGBException("Закрытый конкурс может быть минимум для пятнадцати участников")
-        except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /create_closed_competition")        
 
-        return result       
 
-    @staticmethod
-    def GetDefaultAcceptDeadlineForClosedCompetition() -> datetime:
-        return datetime.now()+timedelta(hours=5)
+
+    
+    def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
+        return datetime.now()+self.DefaultAcceptDeadlineTimedelta
     
     def SelectFirstAvailableAcceptDeadlineForChat(self, chat_id:int, min_ts:datetime) -> datetime:
         comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
@@ -559,6 +553,24 @@ class LitGBot:
             return comps[-1].PollingDeadline
         
         return min_ts
+    
+    def CheckClosedCompetitionConfirmation(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> CompetitionInfo:
+         if len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount:
+            return self.Db.ConfirmCompetition(comp.Id)
+         return comp
+    
+    def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> CompetitionInfo:
+        if comp.IsClosedType():
+            return self.CheckClosedCompetitionConfirmation(comp, comp_stat)
+        
+        return comp
+    
+    def AfterCompetitionAttach(self, comp:CompetitionInfo) -> CompetitionInfo:
+        if comp.IsOpenType():
+            return self.Db.ConfirmCompetition(comp.Id)
+        else:
+            stat = self.Db.GetCompetitionStat(comp.Id)
+            return self.CheckClosedCompetitionConfirmation(comp, stat)        
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -568,7 +580,8 @@ class LitGBot:
         
         try:
             self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
-            member_count = self.ParseCreateClosedCompetitionCommand(update.message.text)
+            
+            member_count = self.ParseSingleIntArgumentCommand(update.message.text, "/create_closed_competition", 2, 15)
             chat_id = update.effective_chat.id
             if chat_id == update.effective_user.id:
                 chat_id = None
@@ -580,13 +593,15 @@ class LitGBot:
                 update.effective_user.id, 
                 chat_id, 
                 accept_deadline,
-                accept_deadline+timedelta(days=2),
+                accept_deadline+self.DefaultPollingStageTimedelta,
                 GetRandomString(12),
-                15000,
-                40000,
+                self.DefaultMinTextSize,
+                self.DefaultMaxTextSize,
                 member_count,
                 "тема не задана")
             logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
+            if not (chat_id is None):
+                comp = self.AfterCompetitionAttach(comp)
             await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
         except LitGBException as ex:
             await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
@@ -614,13 +629,15 @@ class LitGBot:
                 update.effective_user.id, 
                 chat_id, 
                 accept_deadline,
-                accept_deadline+timedelta(days=2),
+                accept_deadline+self.DefaultPollingStageTimedelta,
                 GetRandomString(12),
-                15000,
-                40000,
+                self.DefaultMinTextSize,
+                self.DefaultMaxTextSize,
                 None,
                 "тема не задана")
             logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))
+            if not (chat_id is None):
+                self.AfterCompetitionAttach(comp)
             await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
         except LitGBException as ex:
             await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
@@ -629,12 +646,27 @@ class LitGBot:
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))          
         
     async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[ATTACHCOMP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         if self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[ATTACHCOMP] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            logging.warning("[ATTACH] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
             return    
         if update.effective_user.id == update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")           
+            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+
+        try:
+            comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
+            comp = self.FindNotAttachedCompetition(comp_id)
+            if comp.CreatedBy != update.effective_user.id:
+                 raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
+            comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
+            self.AfterCompetitionAttach(comp)
+            await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
+        except LitGBException as ex:
+            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
+        except BaseException as ex:    
+            logging.error("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                      
+
         
     async def competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -668,38 +700,66 @@ class LitGBot:
             m = self.JoinToCompetitionCommandRegex.match(msg)
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /join")        
-      
-    def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
+            raise LitGBException("Некорректный формат команды /join")  
+
+    def FindNotFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.Db.FindCompetition(comp_id)
         if comp is None:
-            raise LitGBException("конкурс не найден")    
-        if comp.DeclaredMemberCount is None:        
-            if (datetime.now() < comp.AcceptFilesDeadline) and (comp.PollingStarted is None):
+            raise CompetitionNotFound(comp_id)
+        if comp.Finished is None:
+            return comp
+        
+        raise LitGBException("Конкурс уже завершён")
+    
+    def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindNotFinishedCompetition(comp_id)
+        if comp.PollingStarted is None:
+            return comp
+        
+        raise LitGBException("Конкурс в стадии голосования")
+    
+    def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+        if not (comp.ChatId is None):
+            raise LitGBException("Конкурс уже привязан ")
+        if not (comp.Started is None):
+            raise LitGBException("Конкурс уже стартовал, а значит его уже нельзя привязать ни к какому чату")
+        return comp
+      
+    def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+        if comp.IsOpenType():        
+            # open type
+            if (not (comp.Confirmed is None)) and (datetime.now() < comp.AcceptFilesDeadline):
                 return comp            
         else:
-            if comp.Started is None:
+            # closed type
+            if comp.Confirmed is None:
                 return comp
             
         raise LitGBException("к конкурсу нельзя присоединиться")
         
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[MYCOMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return        
+            logging.warning("[JOIN] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
+            return
+        
         try:
             comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)
             comp = self.FindJoinableCompetition(comp_id)
-            if comp.EntryToken != token:
-                raise LitGBException("неправильно входной токен")
+            if not (comp.EntryToken is None):
+                if len(comp.EntryToken) > 0:
+                    if comp.EntryToken != token:
+                        raise LitGBException("неправильный входной токен")
             comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
+            comp = self.AfterJoinMember(comp, comp_stat)
             await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id)) 
         except LitGBException as ex:
             await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
         except BaseException as ex:    
-            logging.error("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            logging.error("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))  
 
 if __name__ == '__main__':
