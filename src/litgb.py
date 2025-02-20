@@ -7,13 +7,14 @@ import json
 import time
 import os
 from datetime import timedelta, datetime
-from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound
+from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
 from fb2_tool import GetTextSize, FileToFb2
 import string
 import random
 import re
+import traceback
     
 def GetRandomString(length:int) -> str:    
     letters = string.ascii_lowercase+string.ascii_uppercase    
@@ -35,19 +36,23 @@ class CommandLimits:
         self.ChatLimits:dict[int, float] = {}
         self.LastHandled = time.time()
 
-    def Check(self, user_id:int, chat_id:int) -> bool:
+    def Check(self, user_id:int, chat_id:int):
         t = time.time() 
         if t - self.LastHandled < self.GlobalMinimumInterval:            
-            return True
+            raise CommandRateLimitReached(self)
         if chat_id in self.ChatLimits:
             if t - self.ChatLimits[chat_id] < self.ChatMinimumInterval: 
-                return True
+                raise CommandRateLimitReached(self)
             self.ChatLimits[chat_id] = t
         else:
             self.ChatLimits[chat_id] = t    
         
-        self.LastHandled = t
-        return False       
+        self.LastHandled = t         
+
+
+class CommandRateLimitReached(LitGBException):
+    def __init__(self, src_limit: CommandLimits):
+        LitGBException.__init__(self, "Команда выполняется слишком часто. Минимальный интервал в чате "+str(src_limit.ChatMinimumInterval)+" сек, минимальный интервал глобально "+str(src_limit.GlobalMinimumInterval)+" сек")      
 
 class UserConversation:
     def __init__(self): 
@@ -113,57 +118,30 @@ class LitGBot:
 
     async def mystat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
-        if self.MyStatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[MYSTAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
+        self.MyStatLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-        try:
-            stat_message = "в разработке"        
+        stat_message = "в разработке"        
 
-            await update.message.reply_text(stat_message)    
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))
-
-
-
+        await update.message.reply_text(stat_message)
     
 
     async def stat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
         logging.info("[STAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
-        if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[STAT] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
-            return
+        self.StatLimits.Check(update.effective_user.id, update.effective_chat.id)
 
+        stat_message = "в разработке"        
 
-        try:
-            stat_message = "в разработке"        
+        await update.message.reply_text(stat_message)      
 
-            await update.message.reply_text(stat_message)      
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[STAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))  
 
     async def top(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
         logging.info("[TOP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
-        if self.StatLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[TOP] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))                
-            return
+        self.StatLimits.Check(update.effective_user.id, update.effective_chat.id)
+          
+        stat_message = "в разработке"        
 
-
-        try:            
-            stat_message = "в разработке"        
-
-            await update.message.reply_text(stat_message)     
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[TOP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat) + ", text: "+update.message.text + ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))              
+        await update.message.reply_text(stat_message)     
+              
 
     @staticmethod
     def get_help() -> str:
@@ -214,13 +192,15 @@ class LitGBot:
     @staticmethod
     def MakeFileTitle(filename:str) -> str:
         return filename
+    
+    def CheckPrivateOnly(self, update: Update):
+        if update.effective_user.id != update.effective_chat.id:
+            raise OnlyPrivateMessageAllowed()
 
     async def downloader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):            
         logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user))    
-        if self.UploadFilesLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[DOWNLOADER] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
-            
+        self.UploadFilesLimits.Check(update.effective_user.id, update.effective_chat.id)           
+        self.CheckPrivateOnly(update) 
 
         self.DeleteOldFiles()
 
@@ -277,12 +257,7 @@ class LitGBot:
             reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ MakeHumanReadableAmount(text_size)
             if not (deleted_file_name is None):
                 reply_text += "\nБыл удалён файл "+ deleted_file_name
-            await update.message.reply_text(reply_text)            
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))         
+            await update.message.reply_text(reply_text)      
         finally:
             if not (file_full_path is None):
                 self.FileStorage.DeleteFileFullPath(file_full_path)
@@ -304,29 +279,21 @@ class LitGBot:
 
     async def filelist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILELIST] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return        
+        self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-        self.DeleteOldFiles()      
+        self.DeleteOldFiles()
+        self.CheckPrivateOnly(update) 
 
-        if update.effective_user.id != update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
 
-        try:
-            files = self.Db.GetFileList(update.effective_user.id, 30)
-            files.sort(key=lambda x: x.Loaded)
+        files = self.Db.GetFileList(update.effective_user.id, 30)
+        files.sort(key=lambda x: x.Loaded)
 
-            reply_text = "Список файлов\n"
-            for file in files:
-                reply_text += "\n"+self.MakeFileListItem(file)
+        reply_text = "Список файлов\n"
+        for file in files:
+            reply_text += "\n"+self.MakeFileListItem(file)
 
-            await update.message.reply_text(reply_text)   
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex)) 
+        await update.message.reply_text(reply_text)   
+
 
     @staticmethod
     def ParseSingleIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> int: 
@@ -373,23 +340,16 @@ class LitGBot:
 
     async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user))         
-        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return         
-        self.DeleteOldFiles() 
-        if update.effective_user.id != update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
-        
-        try:
-            file_id = self.ParseSingleIntArgumentCommand(update.message.text, "/getfb2", 1, None)
-            file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+        self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-            await self.SendFB2(file, update, context)
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex)) 
-        except BaseException as ex:    
-            logging.error("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))             
+        self.DeleteOldFiles() 
+        self.CheckPrivateOnly(update) 
+        
+        file_id = self.ParseSingleIntArgumentCommand(update.message.text, "/getfb2", 1, None)
+        file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+
+        await self.SendFB2(file, update, context)
+           
 
 
     @staticmethod
@@ -496,45 +456,32 @@ class LitGBot:
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[FILELIST] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return 
+        self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         self.DeleteOldFiles() 
-        if update.effective_user.id != update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")
-        
-        try:
-            files = self.Db.GetFileList(update.effective_user.id, 30)
-            if len(files) > 0:
-                files.sort(key=lambda x: x.Loaded)                
-                await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files))   
-            else:
-                await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, []))   
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))    
+        self.CheckPrivateOnly(update)         
+
+        files = self.Db.GetFileList(update.effective_user.id, 30)
+        if len(files) > 0:
+            files.sort(key=lambda x: x.Loaded)                
+            await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files))   
+        else:
+            await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, []))   
+   
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
-        logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))         
-        
-        try:
-            if update.effective_user.id in self.UserConversations:
-                if update.effective_user.id != update.effective_chat.id:
-                    return
-                convers = self.UserConversations.pop(update.effective_user.id)
-                if not (convers.SetTitleFor is None):
-                    logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
-                    if len(update.message.text) > self.MaxFileNameSize:
-                        raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
-                    self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
-                    await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                    
+        logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))        
+
+        if update.effective_user.id in self.UserConversations:
+            if update.effective_user.id != update.effective_chat.id:
+                return
+            convers = self.UserConversations.pop(update.effective_user.id)
+            if not (convers.SetTitleFor is None):
+                logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
+                if len(update.message.text) > self.MaxFileNameSize:
+                    raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
+                self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
+                await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
+                   
 
 
 
@@ -574,124 +521,96 @@ class LitGBot:
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[CREATECLOSED] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
+        self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id)
+
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
         
-        try:
-            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
-            
-            member_count = self.ParseSingleIntArgumentCommand(update.message.text, "/create_closed_competition", 2, 15)
-            chat_id = update.effective_chat.id
-            if chat_id == update.effective_user.id:
-                chat_id = None
-            accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
-            if not (chat_id is None):
-                self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
-                accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
-            comp = self.Db.CreateCompetition(
-                update.effective_user.id, 
-                chat_id, 
-                accept_deadline,
-                accept_deadline+self.DefaultPollingStageTimedelta,
-                GetRandomString(12),
-                self.DefaultMinTextSize,
-                self.DefaultMaxTextSize,
-                member_count,
-                "тема не задана")
-            logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
-            if not (chat_id is None):
-                comp = self.AfterCompetitionAttach(comp)
-            await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))            
+        member_count = self.ParseSingleIntArgumentCommand(update.message.text, "/create_closed_competition", 2, 15)
+        chat_id = update.effective_chat.id
+        if chat_id == update.effective_user.id:
+            chat_id = None
+        accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
+        if not (chat_id is None):
+            self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
+            accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
+        comp = self.Db.CreateCompetition(
+            update.effective_user.id, 
+            chat_id, 
+            accept_deadline,
+            accept_deadline+self.DefaultPollingStageTimedelta,
+            GetRandomString(12),
+            self.DefaultMinTextSize,
+            self.DefaultMaxTextSize,
+            member_count,
+            "тема не задана")
+        logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
+        if not (chat_id is None):
+            comp = self.AfterCompetitionAttach(comp)
+        await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
+          
         
     async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[CREATEOPEN] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
-        
-        try:
-            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
+        self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-            chat_id = update.effective_chat.id
-            if chat_id == update.effective_user.id:
-                chat_id = None
-            accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
-            if not (chat_id is None):
-                self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
-                accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
-            comp = self.Db.CreateCompetition(
-                update.effective_user.id, 
-                chat_id, 
-                accept_deadline,
-                accept_deadline+self.DefaultPollingStageTimedelta,
-                GetRandomString(12),
-                self.DefaultMinTextSize,
-                self.DefaultMaxTextSize,
-                None,
-                "тема не задана")
-            logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))
-            if not (chat_id is None):
-                self.AfterCompetitionAttach(comp)
-            await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))          
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
+
+        chat_id = update.effective_chat.id
+        if chat_id == update.effective_user.id:
+            chat_id = None
+        accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
+        if not (chat_id is None):
+            self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
+            accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
+        comp = self.Db.CreateCompetition(
+            update.effective_user.id, 
+            chat_id, 
+            accept_deadline,
+            accept_deadline+self.DefaultPollingStageTimedelta,
+            GetRandomString(12),
+            self.DefaultMinTextSize,
+            self.DefaultMaxTextSize,
+            None,
+            "тема не задана")
+        logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))
+        if not (chat_id is None):
+            self.AfterCompetitionAttach(comp)
+        await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
+       
         
     async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[ATTACH] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return    
+        self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
 
-        try:
-            comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
-            comp = self.FindNotAttachedCompetition(comp_id)
-            if comp.CreatedBy != update.effective_user.id:
-                 raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
-            comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
-            self.AfterCompetitionAttach(comp)
-            await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))                      
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
+        comp = self.FindNotAttachedCompetition(comp_id)
+        if comp.CreatedBy != update.effective_user.id:
+             raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
+        comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
+        self.AfterCompetitionAttach(comp)
+        await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
+                    
 
         
     async def competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[COMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         
         # в конфе - список конкурсов связанных с этим чатом. Режим: только просмотр
         # в личке - список активних конкурсов. Режим: просмотр и возможность присоединиться
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[MYCOMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
-        if update.effective_user.id != update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды разрешено только в личных сообщениях бота")          
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        self.CheckPrivateOnly(update)         
 
         # список конкурсов, в которых юзер участвует или создал
 
     async def joinable_competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[JCOMPS] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return           
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
         # список конкурсов, в которым можно присоединиться
     
@@ -742,25 +661,43 @@ class LitGBot:
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        if self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id):
-            logging.warning("[JOIN] Ignore command from user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))        
-            return
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+
+        comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)
+        comp = self.FindJoinableCompetition(comp_id)
+        if not (comp.EntryToken is None):
+            if len(comp.EntryToken) > 0:
+                if comp.EntryToken != token:
+                    raise LitGBException("неправильный входной токен")
+        comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
+        comp = self.AfterJoinMember(comp, comp_stat)
+        await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
+
+    
+    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.warning("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)        
+
         
-        try:
-            comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)
-            comp = self.FindJoinableCompetition(comp_id)
-            if not (comp.EntryToken is None):
-                if len(comp.EntryToken) > 0:
-                    if comp.EntryToken != token:
-                        raise LitGBException("неправильный входной токен")
-            comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
-            comp = self.AfterJoinMember(comp, comp_stat)
-            await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id)) 
-        except LitGBException as ex:
-            await update.message.reply_text(LitGBot.MakeErrorMessage(ex))             
-        except BaseException as ex:    
-            logging.error("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
-            await update.message.reply_text(LitGBot.MakeExternalErrorMessage(ex))  
+        if isinstance(context.error, OnlyPrivateMessageAllowed):
+            await update.message.reply_text(str(context.error))
+            return
+
+        if isinstance(context.error, CommandRateLimitReached):
+            await update.message.reply_text(str(context.error))
+            return
+
+        if isinstance(context.error, LitGBException):           
+            await update.message.reply_text(self.MakeErrorMessage(context.error)) 
+            return  
+
+        if isinstance(context.error, BaseException):
+            logging.error("EXCEPTION: "+str(context.error,))
+            tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+            tb_string = "".join(tb_list)
+            logging.warning("Exception traceback:" + tb_string)            
+            await update.message.reply_text(self.MakeExternalErrorMessage(context.error))
+            return
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -804,6 +741,8 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
+
+    app.add_error_handler(bot.error_handler)
 
     app.run_polling()
 

@@ -25,4 +25,8 @@ class FileNotFound(LitGBException):
 
 class CompetitionNotFound(LitGBException):
     def __init__(self, id:int):
-        LitGBException.__init__(self, "Конкурс с идентификатором "+str(id)+" не найден")             
+        LitGBException.__init__(self, "Конкурс с идентификатором "+str(id)+" не найден")
+
+class OnlyPrivateMessageAllowed(LitGBException):
+    def __init__(self):
+        LitGBException.__init__(self, "⛔️ Выполнение команды разрешено только в личных сообщениях бота")
