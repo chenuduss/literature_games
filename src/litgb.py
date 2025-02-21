@@ -60,6 +60,7 @@ class UserConversation:
     def __init__(self): 
         self.SetTitleFor = None
         self.SetSubjectFor = None
+        self.InputEntryToken = None
 
 class LitGBot:
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
@@ -671,7 +672,9 @@ class LitGBot:
         if comp.Finished is None:
             return comp
         
-        raise LitGBException("Конкурс уже завершён")
+        raise LitGBException("Конкурс уже завершён")    
+
+
     
     def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindNotFinishedCompetition(comp_id)
@@ -679,6 +682,14 @@ class LitGBot:
             return comp
         
         raise LitGBException("Конкурс в стадии голосования")
+    
+    def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+        if comp.IsClosedType():
+            if not (comp.Confirmed is None):
+                raise LitGBException("Закрытый конкурс нельзя после подтверждения всех участников")            
+
+        return comp      
     
     @staticmethod
     def IsCompetitionPropertyChangable(comp: CompetitionInfo) -> str|None:
@@ -837,7 +848,12 @@ class LitGBot:
             result +="\nСуммарно присланный текст: " + str(comp_stat.TotalSubmittedTextSize)
 
 
-        return result    
+        return result
+    
+    def CancelCompetition(self, comp_id) -> CompetitionInfo:
+        comp = self.FindCancelableCompetition(comp_id)
+        comp = self.Db.CancelCompetition(comp.Id)
+        
 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -871,7 +887,9 @@ class LitGBot:
                     text=self.comp_menu_message(comp, update.effective_user.id, comp_stat),
                     reply_markup=self.comp_menu_keyboard(file_index, comp_list))
             elif action == "cancel":  
-                pass
+                comp = self.CancelCompetition(comp_id)
+                
+                
             elif action == "setsubject":  
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
@@ -885,6 +903,8 @@ class LitGBot:
                 pass
             else:
                 raise LitGBException("unknown menu action: "+action)
+            
+
         except LitGBException as ex:
             await query.edit_message_text(
                 text=self.error_menu_message(ex), reply_markup=InlineKeyboardMarkup([]))                    
