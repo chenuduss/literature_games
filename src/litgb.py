@@ -669,12 +669,12 @@ class LitGBot:
             self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp], update.effective_user.id, update.effective_chat.id))
         
-    async def competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+    async def current_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CURRENT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
-            
+
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
