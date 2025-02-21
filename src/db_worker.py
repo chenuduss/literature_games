@@ -315,16 +315,13 @@ class DbWorkerService:
 
         return result
     
-    @ConnectionPool    
-    def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
-        """ return sorted list"""
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE chat_id = %s AND finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
-        rows = ps_cursor.fetchall()
-
-        result = []
-        for row in rows: 
-            return CompetitionInfo(
+    @staticmethod
+    def SelectCompFields() -> str:
+        return "id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled"
+    
+    @staticmethod
+    def MakeCompetitionInfoFromRow(row) -> CompetitionInfo:
+        return CompetitionInfo(
                 row[0], 
                 row[1], 
                 row[2], 
@@ -343,6 +340,17 @@ class DbWorkerService:
                 row[15],
                 row[16],
                 row[17])
+    
+    @ConnectionPool    
+    def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE chat_id = %s AND finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
 
         return result      
 
@@ -384,7 +392,15 @@ class DbWorkerService:
         ps_cursor.execute("UPDATE competition SET chat_id = %s WHERE id = %s ", (chat_id, comp_id)) 
         connection.commit() 
 
-        return self.FindCompetition(comp_id)              
+        return self.FindCompetition(comp_id) 
+
+    @ConnectionPool
+    def SetCompetitionSubject(self, comp_id:int, subject:str, connection=None) -> CompetitionInfo:            
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET subject = %s WHERE id = %s ", (subject, comp_id)) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)         
 
     @ConnectionPool    
     def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:
@@ -422,4 +438,58 @@ class DbWorkerService:
             ps_cursor.execute("INSERT INTO competition_member (comp_id, user_id) VALUES(%s, %s)", (comp_id, user_id)) 
             connection.commit()  
 
-        return self.GetCompetitionStat(comp_id)
+        return self.GetCompetitionStat(comp_id)    
+    
+    @ConnectionPool    
+    def SelectChatRelatedCompetitions(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE chat_id = %s AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result         
+    
+    @ConnectionPool    
+    def SelectActiveCompetitions(self, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (after, before))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result       
+    
+    
+    @ConnectionPool    
+    def SelectUserCreatedCompetitions(self, user_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE created_by = %s AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (user_id, after, before))        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result 
+
+    @ConnectionPool    
+    def SelectUserRegisteredCompetitions(self, user_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        raise NotImplementedError("SelectUserRegisteredCompetitions")
+    
+    @staticmethod
+    def MergeCompetitionLists(list1:list[CompetitionInfo], list2:list[CompetitionInfo]) -> list[CompetitionInfo]:
+        raise NotImplementedError("MergeCompetitionLists")
+    
+    def SelectUserRelatedCompetitions(self, user_id:int, after:datetime, before:datetime) -> list[CompetitionInfo]:
+        created = self.SelectUserCreatedCompetitions(user_id, after, before)
+        registered = self.SelectUserRegisteredCompetitions(user_id, after, before)
+        return self.MergeCompetitionLists(created, registered)

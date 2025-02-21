@@ -20,6 +20,8 @@ def GetRandomString(length:int) -> str:
     letters = string.ascii_lowercase+string.ascii_uppercase    
     return ''.join(random.choice(letters) for i in range(length))
 
+def DatetimeToString(v:datetime) -> str:
+    return v.strftime("%d.%m.%Y %H:%M")
 
 def MakeHumanReadableAmount(value:int) -> str:     
     if value > 1000000:
@@ -84,6 +86,8 @@ class LitGBot:
 
         self.DefaultMinTextSize = 15000
         self.DefaultMaxTextSize = 40000
+        self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
+        self.CompetitionsListDefaultPastInterval = timedelta(days=3)
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -148,7 +152,8 @@ class LitGBot:
     @staticmethod
     def get_help() -> str:
         result = "Команды: "
-        result += "/competitions - список активных конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
+        result += "/competition - карточка конкурса"
+        result += "/competitions - список конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
         result += "/joinable_competitions - список конкурсов, к которым можно присоединиться"
         result += "/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
         
@@ -363,7 +368,7 @@ class LitGBot:
         result = LitGBot.LockedMark(f.Locked) + "#" + str(f.Id)
         result +="\nНазвание: " + f.Title
         result +="\n"+LitGBot.FileSizeCaption(f)
-        result +="\nЗагружено: " + f.Loaded.strftime("%d.%m.%Y %H:%M")
+        result +="\nЗагружено: " + DatetimeToString(f.Loaded)
 
         return result
 
@@ -487,8 +492,13 @@ class LitGBot:
                     raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
                 self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
                 await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
-                   
-
+            elif  not (convers.SetSubjectFor is None):
+                new_subj = update.message.text.strip()
+                logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+new_subj) 
+                if len(new_subj) < 3:
+                    raise LitGBException("Тема не может быть меньше трёх символов")
+                self.Db.SetCompetitionSubject(convers.SetSubjectFor, new_subj)
+                await update.message.reply_text("Новая тема для конкурса #"+str(convers.SetSubjectFor)+" установлена: "+new_subj)
 
 
 
@@ -604,8 +614,30 @@ class LitGBot:
         logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         
-        # в конфе - список конкурсов связанных с этим чатом. Режим: только просмотр
-        # в личке - список активних конкурсов. Режим: просмотр и возможность присоединиться
+        list_type = "allactive"
+        if update.effective_user.id != update.effective_chat.id:            
+            list_type = "chatrelated"
+
+        comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)        
+        comp = comp_list[0]
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        await update.message.reply_text(
+            self.comp_menu_message(comp, comp_stat, update.effective_user.id), 
+            reply_markup=self.comp_menu_keyboard(list_type, 0, comp_stat, comp_list))
+
+
+    async def competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[COMP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition")    
+
+        comp = self.FindCompetition(comp_id)
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                      
+        await update.message.reply_text(
+            self.comp_menu_message(comp, comp_stat, update.effective_user.id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp]))
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -625,12 +657,17 @@ class LitGBot:
             m = self.JoinToCompetitionCommandRegex.match(msg)
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /join")  
+            raise LitGBException("Некорректный формат команды /join") 
 
-    def FindNotFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
+    def FindCompetition(self, comp_id:int) -> CompetitionInfo:     
         comp = self.Db.FindCompetition(comp_id)
         if comp is None:
             raise CompetitionNotFound(comp_id)
+        return comp
+
+
+    def FindNotFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetition(comp_id)
         if comp.Finished is None:
             return comp
         
@@ -642,6 +679,28 @@ class LitGBot:
             return comp
         
         raise LitGBException("Конкурс в стадии голосования")
+    
+    @staticmethod
+    def IsCompetitionPropertyChangable(comp: CompetitionInfo) -> str|None:
+        if not (comp.Started is None):
+            return "Конкурс стартовал, изменить его свойства уже нельзя"
+        
+    @staticmethod
+    def EnsureCompetitionCreator(comp: CompetitionInfo, user_id:int) -> str|None:
+        if comp.CreatedBy != user_id:
+            raise LitGBException("изменение свойств конкурса разрешено только его создателю")
+    
+    def FindPropertyChangableCompetition(self, comp_id:int, check_creator:int|None) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+
+        if not (check_creator is None):
+            self.EnsureCompetitionCreator(comp, check_creator)
+
+        reason = self.IsCompetitionPropertyChangable(comp)
+        if reason is None:
+            return comp
+        
+        raise LitGBException(reason)
     
     def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -671,10 +730,11 @@ class LitGBot:
 
         comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)
         comp = self.FindJoinableCompetition(comp_id)
-        if not (comp.EntryToken is None):
-            if len(comp.EntryToken) > 0:
-                if comp.EntryToken != token:
-                    raise LitGBException("неправильный входной токен")
+        if comp.CreatedBy != update.effective_user.id:
+            if not (comp.EntryToken is None):
+                if len(comp.EntryToken) > 0:
+                    if comp.EntryToken != token:
+                        raise LitGBException("неправильный входной токен")
         comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
         comp = self.AfterJoinMember(comp, comp_stat)
         await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
@@ -712,7 +772,8 @@ class LitGBot:
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
 
-    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo]):
+    @staticmethod
+    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str):
 
         keyboard = []
 
@@ -724,15 +785,59 @@ class LitGBot:
         if len(list_buttons_line) > 0:
             keyboard.append(list_buttons_line)  
         ###
-
-
+        comp = comp_list[comp_index]
+        if LitGBot.IsCompetitionPropertyChangable(comp):
+            if user_id == comp.CreatedBy:
+                keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
 
         return InlineKeyboardMarkup(keyboard)
        
 
-    #list_type
     def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
-        pass
+
+        after = datetime.now() - self.CompetitionsListDefaultPastInterval
+        before = datetime.now() + self.CompetitionsListDefaultFutureInterval        
+
+        if list_type == "chatrelated":
+            return self.Db.SelectChatRelatedCompetitions(chat_id, after, before)
+        elif list_type == "allactive":
+            return self.Db.SelectActiveCompetitions(after, before)
+        elif list_type == "my":
+            return self.Db.SelectUserRelatedCompetitions(user_id, after, before)        
+        
+        raise LitGBException("unknown competitions list type: "+list_type)
+    
+    @staticmethod
+    def comp_menu_message(comp:CompetitionInfo|None, comp_stat:CompetitionStat|None, user_id:int) -> str:        
+        result = "#" + str(comp.Id)
+        if comp.Canceled:
+            result += " ОТМЕНЁН"
+        result +="\nТип: "
+        if comp.IsClosedType():
+            result +="дуэль/жюри"
+        else:
+            result +="самосуд"    
+
+        result +="\nСоздан: " + DatetimeToString(comp.Created)
+        result +="\nТема : " + comp.Subject
+        result +="\nДедлайн приёма работ: " + DatetimeToString(comp.AcceptFilesDeadline)
+        result +="\nДедлайн голосования: " + DatetimeToString(comp.PollingDeadline)
+
+        result +="\nЗарегистрированных участников : " + str(len(comp_stat.RegisteredMembers))        
+
+        if comp.IsOpenType():
+            result +="\nСписок участников:"
+            i = 0
+            for m in comp_stat.RegisteredMembers:
+                i += 1
+                result +="\n"+str(i)+": "+m.Title
+        else:
+            result +="\nКол-во участников приславших рассказы: " + str(len(comp_stat.SubmittedMembers))    
+            result +="\nКол-во присланных рассказов: " + str(comp_stat.SubmittedFileCount)  
+            result +="\nСуммарно присланный текст: " + str(comp_stat.TotalSubmittedTextSize)
+
+
+        return result    
 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -744,10 +849,12 @@ class LitGBot:
             (list_type, action, comp_id) = self.ParseCompetitionMenuQuery(query.data)
 
             if action == "show":
-                comp = self.Db.FindCompetition(comp_id)          
-                if comp is None:
-                    raise CompetitionNotFound(comp_id)
-                comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
+
+                comp = self.FindCompetition(comp_id)
+                if list_type == "singlemode":
+                    comp_list = [comp]                    
+                else:    
+                    comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
                 
                 file_index = -1
                 for i, v in enumerate(comp_list): 
@@ -758,18 +865,20 @@ class LitGBot:
                 if file_index < 0:
                     raise LitGBException("competition not found in competition list")
                 
+                comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                
                 await query.edit_message_text(
-                            text=self.comз_menu_message(f),
-                            reply_markup=self.comp_menu_keyboard(file_index, comp_list))
+                    text=self.comp_menu_message(comp, update.effective_user.id, comp_stat),
+                    reply_markup=self.comp_menu_keyboard(file_index, comp_list))
             elif action == "cancel":  
                 pass
             elif action == "setsubject":  
-                
+                comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
-                uconv.SetSubjectFor = f.Id
+                uconv.SetSubjectFor = comp.Id
                 self.UserConversations[update.effective_user.id] = uconv
                 await query.edit_message_text(
-                    text="Введите новое тему", reply_markup=InlineKeyboardMarkup([]))                
+                    text="Введите новую тему", reply_markup=InlineKeyboardMarkup([]))                
             elif action == "join":
                 pass
             elif action == "leave":
@@ -819,6 +928,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("create_open_competition", bot.create_open_competition))
     app.add_handler(CommandHandler("attach_competition", bot.attach_competition))
     app.add_handler(CommandHandler("competitions", bot.competitions))  
+    app.add_handler(CommandHandler("competition", bot.competition))  
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
