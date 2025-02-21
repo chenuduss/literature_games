@@ -91,6 +91,12 @@ class CompetitionInfo:
 
     def IsClosedType(self) -> bool:
         return not self.IsOpenType()
+    
+    def __eq__(self, other):
+        return self.Id == other.Id
+
+    def __ne__(self, other):
+        return not self.__eq__(other)         
 
 class CompetitionStat:
     def __init__(self, 
@@ -316,8 +322,30 @@ class DbWorkerService:
         return result
     
     @staticmethod
-    def SelectCompFields() -> str:
-        return "id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled"
+    def SelectCompFields(obname:str|None = None) -> str:
+        if obname is None:
+            return "id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled"
+        
+        result = ""
+        result += obname+".id, "
+        result += obname+".chat_id, "
+        result += obname+".created, "
+        result += obname+".created_by, "
+        result += obname+".confirmed, "
+        result += obname+".started, "
+        result += obname+".accept_files_deadline, "
+        result += obname+".polling_deadline, "
+        result += obname+".entry_token, "
+        result += obname+".min_text_size, "
+        result += obname+".max_text_size, "
+        result += obname+".declared_member_count, "
+        result += obname+".subject, "
+        result += obname+".subject_ext, "
+        result += obname+".max_files_per_member, "
+        result += obname+".polling_started, "
+        result += obname+".finished, "
+        result += obname+".canceled "
+        return result
     
     @staticmethod
     def MakeCompetitionInfoFromRow(row) -> CompetitionInfo:
@@ -483,13 +511,24 @@ class DbWorkerService:
     @ConnectionPool    
     def SelectUserRegisteredCompetitions(self, user_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
         """ return sorted list"""
-        raise NotImplementedError("SelectUserRegisteredCompetitions")
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("SELECT "+self.SelectCompFields("c")+" FROM competition as c INNER JOIN competition_member as cm ON c.id = cm.comp_id WHERE cm.user_id = %s AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (user_id, after, before))        
+        rows = ps_cursor.fetchall()
+                                    
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result 
     
     @staticmethod
     def MergeCompetitionLists(list1:list[CompetitionInfo], list2:list[CompetitionInfo]) -> list[CompetitionInfo]:
-        raise NotImplementedError("MergeCompetitionLists")
+        total_set = set(list1).union(set(list2))
+        return list(total_set)
     
     def SelectUserRelatedCompetitions(self, user_id:int, after:datetime, before:datetime) -> list[CompetitionInfo]:
         created = self.SelectUserCreatedCompetitions(user_id, after, before)
         registered = self.SelectUserRegisteredCompetitions(user_id, after, before)
-        return self.MergeCompetitionLists(created, registered)
+        result = self.MergeCompetitionLists(created, registered)
+        result.sort(key=lambda x: x.Сreated)
+        return result
