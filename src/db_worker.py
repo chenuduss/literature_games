@@ -414,7 +414,7 @@ class DbWorkerService:
         ps_cursor.execute(
             "SELECT u.id, u.title, uf.text_size FROM "+
             "competition_member as cm "+
-            "INNER JOIN sd_user AS u ON cm.user_id = u.id uploaded_file "+
+            "INNER JOIN sd_user AS u ON cm.user_id = u.id "+
             "LEFT OUTER JOIN uploaded_file AS uf ON cm.file_id = uf.id "
             "WHERE comp_id = %s", (comp_id, ))
         rows = ps_cursor.fetchall()

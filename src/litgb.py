@@ -6,7 +6,7 @@ import logging
 import json
 import time
 import os
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
@@ -194,7 +194,7 @@ class LitGBot:
     def DeleteOldFiles(self) -> None:
 
         try:
-            file_list = self.Db.GetNotLockedFileListBefore(datetime.now() - self.FileStorage.RetentionPeriod)
+            file_list = self.Db.GetNotLockedFileListBefore(datetime.now(timezone.utc) - self.FileStorage.RetentionPeriod)
             for file in file_list:                
                 self.DeleteFile(file)
         except BaseException as ex:
@@ -323,6 +323,7 @@ class LitGBot:
                 if not (max is None):    
                     if  result > max:
                         raise LitGBException("Разрешённое максимальное значение команды "+str(min))
+                return result    
         except BaseException as ex:
             raise LitGBException("Некорректный формат команды "+command)
 
@@ -374,7 +375,7 @@ class LitGBot:
         return result
 
     @staticmethod
-    def error_menu_message(self, error:LitGBException) -> str:
+    def error_menu_message(error:LitGBException) -> str:
         return LitGBot.MakeErrorMessage(error)
 
     def file_menu_keyboard(self, file_index:int, files:list[FileInfo]):
@@ -493,7 +494,7 @@ class LitGBot:
                     raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
                 self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
                 await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
-            elif  not (convers.SetSubjectFor is None):
+            elif not (convers.SetSubjectFor is None):
                 new_subj = update.message.text.strip()
                 logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+new_subj) 
                 if len(new_subj) < 3:
@@ -514,7 +515,7 @@ class LitGBot:
 
     
     def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
-        return datetime.now()+self.DefaultAcceptDeadlineTimedelta
+        return datetime.now(timezone.utc)+self.DefaultAcceptDeadlineTimedelta
     
     def SelectFirstAvailableAcceptDeadlineForChat(self, chat_id:int, min_ts:datetime, polling_stage_interval_secs:int) -> datetime:
         comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
@@ -632,7 +633,7 @@ class LitGBot:
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
         await update.message.reply_text(
             self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard(list_type, 0, comp_stat, comp_list))
+            reply_markup=self.comp_menu_keyboard(list_type, 0, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
 
 
     async def competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
@@ -646,7 +647,7 @@ class LitGBot:
                       
         await update.message.reply_text(
             self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp]))
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp], update.effective_user.id, update.effective_chat.id))
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -658,7 +659,7 @@ class LitGBot:
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
         await update.message.reply_text(
             self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("my", 0, comp_stat, comp_list))
+            reply_markup=self.comp_menu_keyboard("my", 0, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
 
     async def joinable_competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -754,7 +755,7 @@ class LitGBot:
         if comp.IsOpenType():        
             if comp.Confirmed is None:
                 return "к конкурсу нельзя присоединиться"
-            if datetime.now() >= comp.AcceptFilesDeadline:
+            if datetime.now(timezone.utc) >= comp.AcceptFilesDeadline:
                 return "прошёл дедлайн отправки работ"
         else:            
             if not (comp.Confirmed is None):
@@ -821,7 +822,7 @@ class LitGBot:
             raise LitGBException("invalid comp menu query")  
 
     @staticmethod
-    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str):
+    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str, chat_id:int):
 
         keyboard = []
 
@@ -834,7 +835,7 @@ class LitGBot:
             keyboard.append(list_buttons_line)  
         ###
         comp = comp_list[comp_index]
-        if user_id == comp.CreatedBy:
+        if (user_id == comp.CreatedBy) and (user_id == chat_id):
             if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
             if LitGBot.IsCompetitionСancelable(comp) is None:            
@@ -848,8 +849,8 @@ class LitGBot:
 
     def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
 
-        after = datetime.now() - self.CompetitionsListDefaultPastInterval
-        before = datetime.now() + self.CompetitionsListDefaultFutureInterval        
+        after = datetime.now(timezone.utc) - self.CompetitionsListDefaultPastInterval
+        before = datetime.now(timezone.utc) + self.CompetitionsListDefaultFutureInterval        
 
         if list_type == "chatrelated":
             return self.Db.SelectChatRelatedCompetitions(chat_id, after, before)
@@ -906,7 +907,7 @@ class LitGBot:
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
 
-        query = update.callback_query      
+        query = update.callback_query              
 
         await query.answer()
         try:
@@ -920,27 +921,27 @@ class LitGBot:
                 else:    
                     comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
                 
-                file_index = -1
+                comp_index = -1
                 for i, v in enumerate(comp_list): 
                     if v.Id == comp.Id:
-                        file_index = i
+                        comp_index = i
                         break
 
-                if file_index < 0:
+                if comp_index < 0:
                     raise LitGBException("competition not found in competition list")
                 
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
                 
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id),
-                    reply_markup=self.comp_menu_keyboard(file_index, comp_list))
+                    reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
             elif action == "cancel":
                 comp = self.CancelCompetition(comp_id)
                 
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
                 self.ReportCompetitionStateToAttachedChat(comp, context)
                 await query.edit_message_text(
-                    text=self.comp_menu_message(comp, update.effective_user.id, comp_stat, update.effective_chat.id), 
+                    text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
                     reply_markup=InlineKeyboardMarkup([]))  
                     
             elif action == "setsubject":  
@@ -976,9 +977,12 @@ class LitGBot:
             logging.error("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
+            
+    async def event_five_minutes(self, context: ContextTypes.DEFAULT_TYPE):
+        logging.info("[EVENT_TIMER] event")
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
     parser = argparse.ArgumentParser(
         prog = 'LitGBot', description = '''Literature games bot''', epilog = '''(c) 2025''')   
@@ -1022,8 +1026,8 @@ if __name__ == '__main__':
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 
+    job_minute = app.job_queue.run_repeating(bot.event_five_minutes, interval=60*10, first=5)
+
     app.add_error_handler(bot.error_handler)
 
     app.run_polling()
-
-#https://docs-python.ru/packages/biblioteka-python-telegram-bot-python/planirovschik-soobschenij/
