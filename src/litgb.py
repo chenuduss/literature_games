@@ -60,7 +60,7 @@ class UserConversation:
     def __init__(self): 
         self.SetTitleFor = None
         self.SetSubjectFor = None
-        self.InputEntryToken = None
+        self.InputEntryTokenFor = None
 
 class LitGBot:
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
@@ -500,23 +500,36 @@ class LitGBot:
                     raise LitGBException("Тема не может быть меньше трёх символов")
                 self.Db.SetCompetitionSubject(convers.SetSubjectFor, new_subj)
                 await update.message.reply_text("Новая тема для конкурса #"+str(convers.SetSubjectFor)+" установлена: "+new_subj)
+            elif  not (convers.InputEntryTokenFor is None):    
+                token = update.message.text.strip()
+                logging.info("[INPUT_TOKEN] input entry token for competition #"+str(convers.SetSubjectFor)+": "+token) 
 
-
+                comp = self.FindJoinableCompetition(convers.InputEntryTokenFor)
+                if comp.EntryToken != token:
+                    raise LitGBException("неправильный входной токен")
+                
+                comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
+                comp = self.AfterJoinMember(comp, comp_stat)
+                await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
 
     
     def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
         return datetime.now()+self.DefaultAcceptDeadlineTimedelta
     
-    def SelectFirstAvailableAcceptDeadlineForChat(self, chat_id:int, min_ts:datetime) -> datetime:
+    def SelectFirstAvailableAcceptDeadlineForChat(self, chat_id:int, min_ts:datetime, polling_stage_interval_secs:int) -> datetime:
         comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
         if len(comps) > 0:
             for i in range(0, len(comps)-1):
-                if (comps[i+1].AcceptFilesDeadline - comps[i].PollingDeadline).total_seconds() >= 172800:
+                if (comps[i+1].AcceptFilesDeadline - comps[i].PollingDeadline).total_seconds() >= polling_stage_interval_secs:
                     return comps[i].PollingDeadline
             
             return comps[-1].PollingDeadline
         
         return min_ts
+    
+    def CheckCompetitionDeadlines(self, chat_id:int, comp:CompetitionInfo) -> bool:
+        comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
+        raise NotImplementedError("CheckCompetitionDeadlines")
     
     def CheckClosedCompetitionConfirmation(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> CompetitionInfo:
          if len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount:
@@ -539,7 +552,7 @@ class LitGBot:
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id)
-
+        
         self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
         
         member_count = self.ParseSingleIntArgumentCommand(update.message.text, "/create_closed_competition", 2, 15)
@@ -549,7 +562,7 @@ class LitGBot:
         accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
         if not (chat_id is None):
             self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
-            accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
+            accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline, 172800)
         comp = self.Db.CreateCompetition(
             update.effective_user.id, 
             chat_id, 
@@ -569,19 +582,14 @@ class LitGBot:
     async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CreateCompetitionLimits.Check(update.effective_user.id, update.effective_chat.id)
-
+        self.CheckPrivateOnly(update)
         self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
 
-        chat_id = update.effective_chat.id
-        if chat_id == update.effective_user.id:
-            chat_id = None
-        accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
-        if not (chat_id is None):
-            self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
-            accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline)
+        
+        accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()        
         comp = self.Db.CreateCompetition(
             update.effective_user.id, 
-            chat_id, 
+            None, 
             accept_deadline,
             accept_deadline+self.DefaultPollingStageTimedelta,
             GetRandomString(12),
@@ -589,9 +597,7 @@ class LitGBot:
             self.DefaultMaxTextSize,
             None,
             "тема не задана")
-        logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))
-        if not (chat_id is None):
-            self.AfterCompetitionAttach(comp)
+        logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))        
         await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
        
         
@@ -604,7 +610,9 @@ class LitGBot:
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
         comp = self.FindNotAttachedCompetition(comp_id)
         if comp.CreatedBy != update.effective_user.id:
-             raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
+            raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
+        if not self.CheckCompetitionDeadlines():
+            raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
         comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
         self.AfterCompetitionAttach(comp)
         await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
@@ -623,7 +631,7 @@ class LitGBot:
         comp = comp_list[0]
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
         await update.message.reply_text(
-            self.comp_menu_message(comp, comp_stat, update.effective_user.id), 
+            self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard(list_type, 0, comp_stat, comp_list))
 
 
@@ -637,7 +645,7 @@ class LitGBot:
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
                       
         await update.message.reply_text(
-            self.comp_menu_message(comp, comp_stat, update.effective_user.id), 
+            self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp]))
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
@@ -645,13 +653,19 @@ class LitGBot:
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         self.CheckPrivateOnly(update)         
 
-        # список конкурсов, в которых юзер участвует или создал
+        comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
+        comp = comp_list[0]
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        await update.message.reply_text(
+            self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("my", 0, comp_stat, comp_list))
 
     async def joinable_competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
         # список конкурсов, в которым можно присоединиться
+        raise LitGBException("команда в разработке")
     
     def ParseJoinToCompetitionCommand(self, msg:str) -> tuple[int, str]:        
         try:
@@ -683,13 +697,26 @@ class LitGBot:
         
         raise LitGBException("Конкурс в стадии голосования")
     
+    @staticmethod
+    def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
+        if not (comp.PollingStarted is None):
+            return "конкурс нельзя отменить в стадии голосования"
+        
+        if comp.IsClosedType():
+            if comp.Confirmed:
+                return "Закрытый конкурс нельзя после подтверждения всех участников"
+            
+            
+        return None
+            
+    
     def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
-        if comp.IsClosedType():
-            if not (comp.Confirmed is None):
-                raise LitGBException("Закрытый конкурс нельзя после подтверждения всех участников")            
 
-        return comp      
+        reason = self.IsCompetitionСancelable(comp)
+        if reason is None:
+            return comp
+        raise LitGBException(reason)
     
     @staticmethod
     def IsCompetitionPropertyChangable(comp: CompetitionInfo) -> str|None:
@@ -720,19 +747,29 @@ class LitGBot:
         if not (comp.Started is None):
             raise LitGBException("Конкурс уже стартовал, а значит его уже нельзя привязать ни к какому чату")
         return comp
+    
+
+    @staticmethod
+    def IsCompetitionJoinable(comp:CompetitionInfo) -> str|None:
+        if comp.IsOpenType():        
+            if comp.Confirmed is None:
+                return "к конкурсу нельзя присоединиться"
+            if datetime.now() >= comp.AcceptFilesDeadline:
+                return "прошёл дедлайн отправки работ"
+        else:            
+            if not (comp.Confirmed is None):
+                return "к конкурсу нельзя присоединиться"
+
+        return None          
       
     def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
-        if comp.IsOpenType():        
-            # open type
-            if (not (comp.Confirmed is None)) and (datetime.now() < comp.AcceptFilesDeadline):
-                return comp            
-        else:
-            # closed type
-            if comp.Confirmed is None:
-                return comp
+
+        reason = self.IsCompetitionJoinable(comp)
+        if reason is None:
+            return comp
             
-        raise LitGBException("к конкурсу нельзя присоединиться")
+        raise LitGBException(reason)
         
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
@@ -797,9 +834,14 @@ class LitGBot:
             keyboard.append(list_buttons_line)  
         ###
         comp = comp_list[comp_index]
-        if LitGBot.IsCompetitionPropertyChangable(comp):
-            if user_id == comp.CreatedBy:
+        if user_id == comp.CreatedBy:
+            if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
+            if LitGBot.IsCompetitionСancelable(comp) is None:            
+                keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
+
+        if LitGBot.IsCompetitionJoinable(comp) is None:
+            keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])                 
 
         return InlineKeyboardMarkup(keyboard)
        
@@ -819,7 +861,7 @@ class LitGBot:
         raise LitGBException("unknown competitions list type: "+list_type)
     
     @staticmethod
-    def comp_menu_message(comp:CompetitionInfo|None, comp_stat:CompetitionStat|None, user_id:int) -> str:        
+    def comp_menu_message(comp:CompetitionInfo|None, comp_stat:CompetitionStat|None, user_id:int, chat_id:int) -> str:        
         result = "#" + str(comp.Id)
         if comp.Canceled:
             result += " ОТМЕНЁН"
@@ -830,9 +872,11 @@ class LitGBot:
             result +="самосуд"    
 
         result +="\nСоздан: " + DatetimeToString(comp.Created)
-        result +="\nТема : " + comp.Subject
+        result +="\nТема: " + comp.Subject
         result +="\nДедлайн приёма работ: " + DatetimeToString(comp.AcceptFilesDeadline)
         result +="\nДедлайн голосования: " + DatetimeToString(comp.PollingDeadline)
+        if comp.CreatedBy == chat_id:
+            result +="\nВходной токен: " + comp.EntryToken
 
         result +="\nЗарегистрированных участников : " + str(len(comp_stat.RegisteredMembers))        
 
@@ -850,9 +894,13 @@ class LitGBot:
 
         return result
     
-    def CancelCompetition(self, comp_id) -> CompetitionInfo:
+    def ReportCompetitionStateToAttachedChat(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        pass
+    
+    def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCancelableCompetition(comp_id)
-        comp = self.Db.CancelCompetition(comp.Id)
+        return self.Db.FinishCompetition(comp.Id, True)
+        
         
 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
@@ -884,12 +932,17 @@ class LitGBot:
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
                 
                 await query.edit_message_text(
-                    text=self.comp_menu_message(comp, update.effective_user.id, comp_stat),
+                    text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id),
                     reply_markup=self.comp_menu_keyboard(file_index, comp_list))
-            elif action == "cancel":  
+            elif action == "cancel":
                 comp = self.CancelCompetition(comp_id)
                 
-                
+                comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                self.ReportCompetitionStateToAttachedChat(comp, context)
+                await query.edit_message_text(
+                    text=self.comp_menu_message(comp, update.effective_user.id, comp_stat, update.effective_chat.id), 
+                    reply_markup=InlineKeyboardMarkup([]))  
+                    
             elif action == "setsubject":  
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
@@ -898,7 +951,18 @@ class LitGBot:
                 await query.edit_message_text(
                     text="Введите новую тему", reply_markup=InlineKeyboardMarkup([]))                
             elif action == "join":
-                pass
+                comp = self.FindJoinableCompetition(comp_id)
+                if comp.CreatedBy == update.effective_user.id:                    
+                    comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
+                    comp = self.AfterJoinMember(comp, comp_stat)
+                    await query.edit_message_text(
+                        text="Заявлено участие в конкурсе #"+str(comp.Id), reply_markup=InlineKeyboardMarkup([]))                                  
+                else:
+                    uconv = UserConversation()
+                    uconv.InputEntryTokenFor = comp.Id
+                    self.UserConversations[update.effective_user.id] = uconv
+                    await query.edit_message_text(
+                        text="Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
             elif action == "leave":
                 pass
             else:

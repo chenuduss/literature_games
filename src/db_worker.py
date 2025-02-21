@@ -288,38 +288,8 @@ class DbWorkerService:
                 rows[0][16],
                 rows[0][17])
 
-        return None   
-    
-    @ConnectionPool    
-    def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
-        """ return sorted list"""
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE chat_id = %s AND finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (chat_id, after, before))        
-        rows = ps_cursor.fetchall()
+        return None      
 
-        result = []
-        for row in rows: 
-            return CompetitionInfo(
-                row[0], 
-                chat_id,
-                row[1], 
-                row[2], 
-                row[3], 
-                row[4], 
-                row[5],
-                row[6], 
-                row[7],
-                row[8],
-                row[9],
-                row[10],
-                row[11],
-                row[12],
-                row[13],
-                row[14],
-                row[15],
-                row[16])
-
-        return result
     
     @staticmethod
     def SelectCompFields(obname:str|None = None) -> str:
@@ -428,7 +398,15 @@ class DbWorkerService:
         ps_cursor.execute("UPDATE competition SET subject = %s WHERE id = %s ", (subject, comp_id)) 
         connection.commit() 
 
-        return self.FindCompetition(comp_id)         
+        return self.FindCompetition(comp_id)    
+
+    @ConnectionPool
+    def FinishCompetition(self, comp_id:int, canceled:bool = False, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("UPDATE competition SET finished = (current_timestamp AT TIME ZONE 'UTC'), canceled = %s WHERE id = %s ", (canceled, comp_id))
+        ps_cursor.execute("UPDATE uploaded_file SET locked = FALSE WHERE id IN (SELECT file_id FROM competition_member WHERE file_id IS NOT NULL AND comp_id = %s) ", (comp_id, ))
+        connection.commit() 
+        return self.FindCompetition(comp_id)    
 
     @ConnectionPool    
     def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:
