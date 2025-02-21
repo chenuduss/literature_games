@@ -510,7 +510,7 @@ class LitGBot:
                     raise LitGBException("неправильный входной токен")
                 
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
-                comp = self.AfterJoinMember(comp, comp_stat)
+                comp = self.AfterJoinMember(comp, comp_stat, context)
                 await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
 
     
@@ -532,23 +532,43 @@ class LitGBot:
         comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
         raise NotImplementedError("CheckCompetitionDeadlines")
     
-    def CheckClosedCompetitionConfirmation(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> CompetitionInfo:
-         if len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount:
-            return self.Db.ConfirmCompetition(comp.Id)
+    def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+
+        self.ReportCompetitionStateToAttachedChat(comp, context)
+    
+    def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        self.ReportCompetitionStateToAttachedChat(comp, context)
+
+        if comp.IsClosedType():
+            if comp.ChatId is None:
+                return
+        
+        comp = self.Db.StartCompetition(comp.Id)
+        self.AfterStartCompetition(comp, context)
+    
+    def CheckClosedCompetitionConfirmation(self, 
+            comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+         
+         if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)):
+            comp = self.Db.ConfirmCompetition(comp.Id)
+            self.AfterConfirmCompetition(comp, context)
+            
          return comp
     
-    def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> CompetitionInfo:
+    def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
         if comp.IsClosedType():
-            return self.CheckClosedCompetitionConfirmation(comp, comp_stat)
+            return self.CheckClosedCompetitionConfirmation(comp, comp_stat, context)
         
         return comp
     
-    def AfterCompetitionAttach(self, comp:CompetitionInfo) -> CompetitionInfo:
+    def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
         if comp.IsOpenType():
-            return self.Db.ConfirmCompetition(comp.Id)
+            comp = self.Db.ConfirmCompetition(comp.Id)
+            self.AfterConfirmCompetition(comp, context)
+            return comp
         else:
             stat = self.Db.GetCompetitionStat(comp.Id)
-            return self.CheckClosedCompetitionConfirmation(comp, stat)        
+            return self.CheckClosedCompetitionConfirmation(comp, stat, context)        
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -576,7 +596,7 @@ class LitGBot:
             "тема не задана")
         logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
         if not (chat_id is None):
-            comp = self.AfterCompetitionAttach(comp)
+            comp = self.AfterCompetitionAttach(comp, context)
         await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
           
         
@@ -615,7 +635,7 @@ class LitGBot:
         if not self.CheckCompetitionDeadlines():
             raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
         comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
-        self.AfterCompetitionAttach(comp)
+        self.AfterCompetitionAttach(comp, context)
         await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
                     
 
@@ -648,6 +668,13 @@ class LitGBot:
         await update.message.reply_text(
             self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_stat, [comp], update.effective_user.id, update.effective_chat.id))
+        
+    async def competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[CURRENT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        if update.effective_user.id == update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+            
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -705,7 +732,7 @@ class LitGBot:
         
         if comp.IsClosedType():
             if comp.Confirmed:
-                return "Закрытый конкурс нельзя после подтверждения всех участников"
+                return "Закрытый конкурс нельзя отменить после подтверждения всех участников"
             
             
         return None
@@ -785,7 +812,7 @@ class LitGBot:
                     if comp.EntryToken != token:
                         raise LitGBException("неправильный входной токен")
         comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
-        comp = self.AfterJoinMember(comp, comp_stat)
+        comp = self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
 
     
@@ -896,7 +923,10 @@ class LitGBot:
         return result
     
     def ReportCompetitionStateToAttachedChat(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        pass
+        if comp.ChatId is None:
+            return
+        
+
     
     def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCancelableCompetition(comp_id)
@@ -955,7 +985,7 @@ class LitGBot:
                 comp = self.FindJoinableCompetition(comp_id)
                 if comp.CreatedBy == update.effective_user.id:                    
                     comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
-                    comp = self.AfterJoinMember(comp, comp_stat)
+                    comp = self.AfterJoinMember(comp, comp_stat, context)
                     await query.edit_message_text(
                         text="Заявлено участие в конкурсе #"+str(comp.Id), reply_markup=InlineKeyboardMarkup([]))                                  
                 else:
@@ -978,8 +1008,13 @@ class LitGBot:
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
             
+    def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
+        pass
+            
     async def event_five_minutes(self, context: ContextTypes.DEFAULT_TYPE):
-        logging.info("[EVENT_TIMER] event")
+        logging.info("event_five_minutes:")
+        self.CheckCompetitionStates(context)
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -1017,6 +1052,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("attach_competition", bot.attach_competition))
     app.add_handler(CommandHandler("competitions", bot.competitions))  
     app.add_handler(CommandHandler("competition", bot.competition))  
+    app.add_handler(CommandHandler("current_competition", bot.current_competition))  
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
@@ -1026,7 +1062,7 @@ if __name__ == '__main__':
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 
-    job_minute = app.job_queue.run_repeating(bot.event_five_minutes, interval=60*10, first=5)
+    job_minute = app.job_queue.run_repeating(bot.event_five_minutes, interval=60*5, first=5)
 
     app.add_error_handler(bot.error_handler)
 
