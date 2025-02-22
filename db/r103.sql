@@ -1,1 +1,0 @@
-ALTER TABLE competition_member ADD CONSTRAINT competition_member_pkey PRIMARY KEY (comp_id, user_id, file_id);

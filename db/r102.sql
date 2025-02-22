@@ -21,8 +21,6 @@ CREATE TABLE competition (
     FOREIGN KEY (created_by) REFERENCES sd_user (id)
 );
 
-ALTER TABLE uploaded_file ADD CONSTRAINT uploaded_file_pkey PRIMARY KEY (id);
-
 CREATE TABLE competition_member (
     comp_id int NOT NULL,
     user_id bigint NOT NULL,

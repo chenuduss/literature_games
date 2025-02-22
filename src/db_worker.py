@@ -35,6 +35,9 @@ class UserInfo:
 
     def __ne__(self, other):
         return not self.__eq__(other) 
+    
+    def __hash__(self):
+        return hash(self.Id)    
 
 class ChatInfo:
     def __init__(self, id:int, title:str):
@@ -96,6 +99,9 @@ class CompetitionInfo:
 
     def IsClosedType(self) -> bool:
         return not self.IsOpenType()
+    
+    def IsPollingStarted(self) -> bool:
+        return not (self.PollingStarted is None)
     
     def __eq__(self, other):
         return self.Id == other.Id

@@ -573,26 +573,26 @@ class LitGBot:
 
         return True
     
-    def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
 
-        self.ReportCompetitionStateToAttachedChat(comp, context)
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
     
-    def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        self.ReportCompetitionStateToAttachedChat(comp, context)
+    async def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
 
         if comp.IsClosedType():
             if comp.ChatId is None:
                 return
         
         comp = self.Db.StartCompetition(comp.Id)
-        self.AfterStartCompetition(comp, context)
+        await self.AfterStartCompetition(comp, context)
     
-    def CheckClosedCompetitionConfirmation(self, 
+    async def CheckClosedCompetitionConfirmation(self, 
             comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
          
          if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)):
             comp = self.Db.ConfirmCompetition(comp.Id)
-            self.AfterConfirmCompetition(comp, context)
+            await self.AfterConfirmCompetition(comp, context)
             
          return comp
     
@@ -602,10 +602,10 @@ class LitGBot:
         
         return comp
     
-    def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+    async def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
         if comp.IsOpenType():
             comp = self.Db.ConfirmCompetition(comp.Id)
-            self.AfterConfirmCompetition(comp, context)
+            await self.AfterConfirmCompetition(comp, context)
             return comp
         else:
             stat = self.Db.GetCompetitionStat(comp.Id)
@@ -637,7 +637,7 @@ class LitGBot:
             "тема не задана")
         logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
         if not (chat_id is None):
-            comp = self.AfterCompetitionAttach(comp, context)
+            comp = await self.AfterCompetitionAttach(comp, context)
         await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
           
         
@@ -668,6 +668,7 @@ class LitGBot:
         self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+        self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat))    
 
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
         comp = self.FindNotAttachedCompetition(comp_id)
@@ -676,7 +677,7 @@ class LitGBot:
         if not self.CheckCompetitionDeadlines(update.effective_chat.id, comp):
             raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
         comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
-        self.AfterCompetitionAttach(comp, context)
+        await self.AfterCompetitionAttach(comp, context)
         await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
                     
 
@@ -760,14 +761,14 @@ class LitGBot:
     
     def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindNotFinishedCompetition(comp_id)
-        if comp.PollingStarted is None:
+        if not comp.IsPollingStarted():
             return comp
         
         raise LitGBException("Конкурс в стадии голосования")
     
     @staticmethod
     def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
-        if not (comp.PollingStarted is None):
+        if comp.IsPollingStarted():
             return "конкурс нельзя отменить в стадии голосования"
         
         if comp.IsClosedType():
@@ -887,8 +888,22 @@ class LitGBot:
             return (m.group(1), m.group(2), int(m.group(3)))
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
+        
+    @staticmethod
+    def IsMemberRegisteredInCompetition(comp_stat:CompetitionStat, user_id) -> bool:    
+        for m in comp_stat.RegisteredMembers:
+            if m.Id == user_id:
+                return True
+        return False
+
     
-    def comp_menu_keyboard(self, list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str, chat_id:int):
+    def comp_menu_keyboard(self, 
+            list_type:str, 
+            comp_index:int, 
+            comp_stat:CompetitionStat, 
+            comp_list:list[CompetitionInfo], 
+            user_id:str, 
+            chat_id:int):
 
         keyboard = []
 
@@ -926,8 +941,9 @@ class LitGBot:
             if LitGBot.IsCompetitionСancelable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
 
-        if LitGBot.IsCompetitionJoinable(comp) is None:
-            keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])                 
+        if (LitGBot.IsCompetitionJoinable(comp) is None) and (user_id == chat_id):
+            if not LitGBot.IsMemberRegisteredInCompetition(comp_stat, user_id):
+                keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])                 
 
         return InlineKeyboardMarkup(keyboard)
        
@@ -966,13 +982,14 @@ class LitGBot:
         result +="\nДедлайн голосования: " + DatetimeToString(comp_info.Comp.PollingDeadline)
         result +="\nМинимальный размер текста: " + str(comp_info.Comp.MinTextSize)
         result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)
+        result +="\nМаксимум работ с одного участника: " + str(comp_info.Comp.MaxFilesPerMember)
         if comp_info.Comp.CreatedBy == chat_id:
             result +="\nВходной токен: " + comp_info.Comp.EntryToken
 
         
         result +="\nЗарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
 
-        if comp_info.Comp.IsOpenType():
+        if comp_info.Comp.IsClosedType() and (len(comp_info.Stat.RegisteredMembers) > 0):
             result +="\nСписок участников:"
             i = 0
             for m in comp_info.Stat.RegisteredMembers:
@@ -981,15 +998,21 @@ class LitGBot:
         else:
             result +="\nКол-во участников приславших рассказы: " + str(len(comp_info.Stat.SubmittedMembers))    
             result +="\nКол-во присланных рассказов: " + str(comp_info.Stat.SubmittedFileCount)  
+
+
+        if comp_info.Comp.IsOpenType() or comp_info.Comp.IsPollingStarted():
             result +="\nСуммарно присланный текст: " + str(comp_info.Stat.TotalSubmittedTextSize)
 
 
         return result
     
-    def ReportCompetitionStateToAttachedChat(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def ReportCompetitionStateToAttachedChat(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if comp.ChatId is None:
             return
         
+        if comp.Finished:
+            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" заверщён")
+            return
 
     
     def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
@@ -1051,7 +1074,7 @@ class LitGBot:
                 comp = self.CancelCompetition(comp_id)
                 
                 comp_info = self.GetCompetitionFullInfo(comp)
-                self.ReportCompetitionStateToAttachedChat(comp, context)
+                await self.ReportCompetitionStateToAttachedChat(comp, context)
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
                     reply_markup=InlineKeyboardMarkup([]))  
