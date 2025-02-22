@@ -70,7 +70,7 @@ class CompetitionFullInfo:
         self.Chat = chat
 
 class LitGBot:
-    def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage):
+    def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict):
         self.Db = db_worker
         self.StartTS = int(time.time())       
         
@@ -100,6 +100,8 @@ class LitGBot:
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
+
+        self.Admins = set(admin[user_ids])
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -324,6 +326,9 @@ class LitGBot:
 
         await update.message.reply_text(reply_text)   
 
+    @staticmethod
+    def ParseTwoIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> tuple[int, int]: 
+        raise NotImplementedError("ParseTwoIntArgumentCommand")
 
     @staticmethod
     def ParseSingleIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> int: 
@@ -533,6 +538,18 @@ class LitGBot:
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([])) 
 
+    async def set_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        self.CheckPrivateOnly(update)
+        if not (update.effective_user.id in self.Admins):
+            return
+
+    async def set_allusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+
+    async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))             
+        
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
         logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -879,7 +896,18 @@ class LitGBot:
             if not (comp.Confirmed is None):
                 return "к конкурсу нельзя присоединиться"
 
-        return None          
+        return None
+    
+    @staticmethod
+    def CheckCompetitionLeaveable(comp:CompetitionInfo) -> str|None:
+        if not (comp.PollingStarted is None):
+            return "нельзя выйти из конкурса на стадии голосования"
+
+        if comp.IsClosedType():  
+            if not (comp.Started is None):
+                return "из закрытого конкурса нельзя выйти в после того, как он стартовал" 
+
+        return None       
       
     def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -894,7 +922,8 @@ class LitGBot:
         comp = self.FindCompetitionBeforePollingStage(id)
         if comp.Started is None:
             raise LitGBException("конкурс ещё не стартовал, приём файлов возможен только в стартовавший конкурс")
-        return comp
+        return comp   
+
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -971,44 +1000,49 @@ class LitGBot:
             keyboard.append(list_buttons_line)  
         ###
         comp = comp_list[comp_index]
-        if (user_id == comp.CreatedBy) and (user_id == chat_id):
-            if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
-                keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
-                keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
+        if user_id == chat_id:
+            if user_id == comp.CreatedBy :
+                if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
+                    keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
+                    keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
 
-                min_text_size_change_kbd = []
-                if comp.MinTextSize > self.MinTextSize:
-                    min_text_size_change_kbd.append(InlineKeyboardButton('MIN --', callback_data='comp_'+list_type+'_mintextdec_'+str(comp.Id)))
-                if comp.MinTextSize + self.TextLimitChangeStep < comp.MaxTextSize:
-                    min_text_size_change_kbd.append(InlineKeyboardButton('MIN ++', callback_data='comp_'+list_type+'_mintextinc_'+str(comp.Id)))
+                    min_text_size_change_kbd = []
+                    if comp.MinTextSize > self.MinTextSize:
+                        min_text_size_change_kbd.append(InlineKeyboardButton('MIN --', callback_data='comp_'+list_type+'_mintextdec_'+str(comp.Id)))
+                    if comp.MinTextSize + self.TextLimitChangeStep < comp.MaxTextSize:
+                        min_text_size_change_kbd.append(InlineKeyboardButton('MIN ++', callback_data='comp_'+list_type+'_mintextinc_'+str(comp.Id)))
 
-                if len(min_text_size_change_kbd) > 0:
-                    keyboard.append(min_text_size_change_kbd)
+                    if len(min_text_size_change_kbd) > 0:
+                        keyboard.append(min_text_size_change_kbd)
 
-                max_text_size_change_kbd = []
-                if comp.MaxTextSize - self.TextLimitChangeStep > comp.MinTextSize:
-                    max_text_size_change_kbd.append(InlineKeyboardButton('MAX --', callback_data='comp_'+list_type+'_maxtextdec_'+str(comp.Id)))                
-                if comp.MaxTextSize < self.MaxTextSize:
-                    max_text_size_change_kbd.append(InlineKeyboardButton('MAX ++', callback_data='comp_'+list_type+'_maxtextinc_'+str(comp.Id)))
+                    max_text_size_change_kbd = []
+                    if comp.MaxTextSize - self.TextLimitChangeStep > comp.MinTextSize:
+                        max_text_size_change_kbd.append(InlineKeyboardButton('MAX --', callback_data='comp_'+list_type+'_maxtextdec_'+str(comp.Id)))                
+                    if comp.MaxTextSize < self.MaxTextSize:
+                        max_text_size_change_kbd.append(InlineKeyboardButton('MAX ++', callback_data='comp_'+list_type+'_maxtextinc_'+str(comp.Id)))
 
-                if len(max_text_size_change_kbd) > 0:
-                    keyboard.append(max_text_size_change_kbd)  
+                    if len(max_text_size_change_kbd) > 0:
+                        keyboard.append(max_text_size_change_kbd)  
 
-                if comp.IsOpenType():
-                    max_files_change_kbd = []
-                    if comp.MaxFilesPerMember > 1:
-                        max_files_change_kbd.append(InlineKeyboardButton('MAXFILES --', callback_data='comp_'+list_type+'_maxfilesdec_'+str(comp.Id)))                
-                    if comp.MaxFilesPerMember < 10:
-                        max_files_change_kbd.append(InlineKeyboardButton('MAXFILES ++', callback_data='comp_'+list_type+'_maxfilesinc_'+str(comp.Id)))
+                    if comp.IsOpenType():
+                        max_files_change_kbd = []
+                        if comp.MaxFilesPerMember > 1:
+                            max_files_change_kbd.append(InlineKeyboardButton('MAXFILES --', callback_data='comp_'+list_type+'_maxfilesdec_'+str(comp.Id)))                
+                        if comp.MaxFilesPerMember < 10:
+                            max_files_change_kbd.append(InlineKeyboardButton('MAXFILES ++', callback_data='comp_'+list_type+'_maxfilesinc_'+str(comp.Id)))
 
-                    if len(max_files_change_kbd) > 0:
-                        keyboard.append(max_files_change_kbd)                                      
-            if LitGBot.IsCompetitionСancelable(comp) is None:            
-                keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
+                        if len(max_files_change_kbd) > 0:
+                            keyboard.append(max_files_change_kbd)                                      
+                if LitGBot.IsCompetitionСancelable(comp) is None:            
+                    keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
+        
+            if self.IsCompetitionJoinable(comp) is None:
+                if not self.IsMemberRegisteredInCompetition(comp_stat, user_id):
+                    keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
-        if (LitGBot.IsCompetitionJoinable(comp) is None) and (user_id == chat_id):
-            if not LitGBot.IsMemberRegisteredInCompetition(comp_stat, user_id):
-                keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])                 
+            if self.CheckCompetitionLeaveable(comp) is None:
+                if self.IsMemberRegisteredInCompetition(comp_stat, user_id):
+                    keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
         return InlineKeyboardMarkup(keyboard)
        
@@ -1138,6 +1172,9 @@ class LitGBot:
         if not (comp.ChatId is None):
             chat = self.Db.FindChat(comp.ChatId)
         return CompetitionFullInfo(comp, stat, chat)
+    
+    def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo) -> CompetitionFullInfo:
+        raise NotImplementedError("ReleaseUserFilesFromCompetition")
                 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1189,10 +1226,8 @@ class LitGBot:
 
                 self.ValidateTextLimits(comp)    
                                 
-                if list_type == "singlemode":
-                    comp_list = [comp]                    
-                else:    
-                    comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
+                list_type = "singlemode"
+                comp_list = [comp]
                 comp_index = self.GetIndex(comp, comp_list)
                 comp = self.Db.SetCompetitionTextLimits(comp.Id, comp.MinTextSize, comp.MaxTextSize, comp.MaxFilesPerMember)
                 comp_info = self.GetCompetitionFullInfo(comp)
@@ -1228,9 +1263,17 @@ class LitGBot:
                     await query.edit_message_text(
                         text="Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
             elif action == "leave":
+                comp = self.FindLeavableCompetition(comp_id)
                 raise NotImplementedError("action == leave")
             elif action == "releasefiles":
-                raise NotImplementedError("action == releasefiles")
+                comp = self.FindFileAcceptableCompetition(comp_id)
+                comp_info = self.ReleaseUserFilesFromCompetition(update.effective_user.id, comp)
+                list_type = "singlemode"
+                comp_list = [comp]
+                comp_index = self.GetIndex(comp, comp_list)
+                await query.edit_message_text(
+                    text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),
+                    reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))  
             else:
                 raise LitGBException("unknown menu action: "+action)
             
@@ -1273,7 +1316,7 @@ if __name__ == '__main__':
 
     app = ApplicationBuilder().token(conf['bot_token']).build()
 
-    bot = LitGBot(db, file_str)   
+    bot = LitGBot(db, file_str, conf['admin'])   
 
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
@@ -1291,6 +1334,12 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
+
+    #ADMINS
+    app.add_handler(CommandHandler("set_filelimit", bot.set_file_limit))    
+    app.add_handler(CommandHandler("set_allusers_filelimit", bot.set_allusers_file_limit))   
+    app.add_handler(CommandHandler("kill", bot.kill_competition))
+
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
     app.add_handler(CallbackQueryHandler(bot.comp_menu_handler, pattern="comp_\\S+"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))

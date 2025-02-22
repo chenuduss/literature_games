@@ -148,6 +148,12 @@ class DbWorkerService:
             connection.commit()
 
     @ConnectionPool    
+    def SetUserFileLimit(self, user_id:int, limit:int,  connection=None) -> None:        
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE sd_user SET file_limit = %s NULL WHERE id = %s ", (limit, user_id)) 
+        connection.commit()         
+
+    @ConnectionPool    
     def GetUserFileLimit(self, user_id:int, connection=None) -> int:
         ps_cursor = connection.cursor()          
         ps_cursor.execute("SELECT file_limit FROM sd_user WHERE id = %s", (user_id, ))        
