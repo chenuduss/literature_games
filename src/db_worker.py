@@ -418,9 +418,9 @@ class DbWorkerService:
         return self.FindCompetition(comp_id) 
     
     @ConnectionPool    
-    def SetCompetitionTextLimits(self, id:int, min:int, max:int, connection=None) -> FileInfo:
+    def SetCompetitionTextLimits(self, id:int, min:int, max:int, max_files_per_member:int, connection=None) -> FileInfo:
         ps_cursor = connection.cursor()  
-        ps_cursor.execute("UPDATE competition SET min_text_size = %s, max_text_size = %s WHERE id = %s ", (min, max, id)) 
+        ps_cursor.execute("UPDATE competition SET min_text_size = %s, max_text_size = %s, max_files_per_member = %s WHERE id = %s ", (min, max, max_files_per_member, id)) 
         connection.commit() 
 
         return self.FindCompetition(id)      

@@ -938,7 +938,17 @@ class LitGBot:
                     max_text_size_change_kbd.append(InlineKeyboardButton('MAX ++', callback_data='comp_'+list_type+'_maxtextinc_'+str(comp.Id)))
 
                 if len(max_text_size_change_kbd) > 0:
-                    keyboard.append(max_text_size_change_kbd)                    
+                    keyboard.append(max_text_size_change_kbd)  
+
+                if comp.IsOpenType():
+                    max_files_change_kbd = []
+                    if comp.MaxFilesPerMember > 1:
+                        max_files_change_kbd.append(InlineKeyboardButton('MAXFILES --', callback_data='comp_'+list_type+'_maxfilesdec_'+str(comp.Id)))                
+                    if comp.MaxFilesPerMember < 10:
+                        max_files_change_kbd.append(InlineKeyboardButton('MAXFILES ++', callback_data='comp_'+list_type+'_maxfilesinc_'+str(comp.Id)))
+
+                    if len(max_files_change_kbd) > 0:
+                        keyboard.append(max_files_change_kbd)                                      
             if LitGBot.IsCompetitionСancelable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
 
@@ -1026,7 +1036,14 @@ class LitGBot:
             return
         
         if comp.Finished:
-            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" заверщён")
+            if comp.Canceled:
+                await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" отменён")
+            else:    
+                await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" завершён")
+            return
+        
+        if not (comp.PollingStarted) is None:
+            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" перешёл в стадию голосования. Дедлайн: "+DatetimeToString(comp.PollingDeadline))
             return
 
     
@@ -1035,13 +1052,19 @@ class LitGBot:
         return self.Db.FinishCompetition(comp.Id, True)
         
     
-    def ValidateTextLimits(self, min:int, max:int):
-        if min >= max:
+    def ValidateTextLimits(self, comp:CompetitionInfo):
+        if comp.MinTextSize >= comp.MaxTextSize:
             raise LitGBException("минимальное размер текста должен быть меньше, чем максимальный размер")
-        if min < self.MinTextSize:
+        if comp.MinTextSize < self.MinTextSize:
             raise LitGBException("минимальный размер текста не может быть меньше, чем "+str(self.MinTextSize))
-        if max > self.MaxTextSize:
+        if comp.MaxTextSize > self.MaxTextSize:
             raise LitGBException("максимальный размер текста не может быть больше, чем "+str(self.MaxTextSize))        
+        if comp.MaxFilesPerMember < 1:
+            raise LitGBException("максимум работ с участника не может быть меньше одного")        
+        if comp.IsClosedType() and (comp.MaxFilesPerMember != 1):
+            raise LitGBException("в закрытых конкурсах максимум файлов с участника должен быть всегда 1")
+        if comp.MaxFilesPerMember > 10:
+            raise LitGBException("максимум работ с участника не может быть больше 10")        
         
     @staticmethod
     def GetIndex(comp:CompetitionInfo, comp_list:list[CompetitionInfo]) -> int:
@@ -1094,7 +1117,7 @@ class LitGBot:
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
                     reply_markup=InlineKeyboardMarkup([]))  
                 
-            elif (action == "mintextdec") or (action == "mintextinc") or (action == "maxtextdec") or (action == "maxtextinc"):
+            elif (action == "mintextdec") or (action == "mintextinc") or (action == "maxtextdec") or (action == "maxtextinc") or (action == "maxfilesdec") or (action == "maxfilesinc"):
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
 
                 if action == "mintextdec":
@@ -1105,15 +1128,19 @@ class LitGBot:
                     comp.MaxTextSize -= self.TextLimitChangeStep
                 elif action == "maxtextinc":
                     comp.MaxTextSize += self.TextLimitChangeStep
+                elif action == "maxfilesdec":
+                    comp.MaxFilesPerMember -= 1
+                elif action == "maxfilesinc":
+                    comp.MaxFilesPerMember += 1
 
-                self.ValidateTextLimits(comp.MinTextSize, comp.MaxTextSize)    
-                
+                self.ValidateTextLimits(comp)    
+                                
                 if list_type == "singlemode":
                     comp_list = [comp]                    
                 else:    
                     comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
                 comp_index = self.GetIndex(comp, comp_list)
-                comp = self.Db.SetCompetitionTextLimits(comp.Id, comp.MinTextSize, comp.MaxTextSize)
+                comp = self.Db.SetCompetitionTextLimits(comp.Id, comp.MinTextSize, comp.MaxTextSize, comp.MaxFilesPerMember)
                 comp_info = self.GetCompetitionFullInfo(comp)
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),
