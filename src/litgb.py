@@ -395,8 +395,12 @@ class LitGBot:
     @staticmethod
     def error_menu_message(error:LitGBException) -> str:
         return LitGBot.MakeErrorMessage(error)
+    
+    @staticmethod
+    def MakeUseFileInCompetitionButtonCaption(comp:CompetitionInfo, chat:ChatInfo) -> str:
+        return "#"+str(comp.Id)+" "+chat.Title
 
-    def file_menu_keyboard(self, file_index:int, files:list[FileInfo]):
+    def file_menu_keyboard(self, file_index:int, files:list[FileInfo], user_id:int):
         if len(files) == 0:
             return InlineKeyboardMarkup([])
 
@@ -409,6 +413,25 @@ class LitGBot:
         keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
         keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
         keyboard.append([InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str)])
+
+        if not file.Locked:
+            joined_competitions = self.Db.SelectUserRegisteredCompetitions(user_id, datetime.now(timezone.utc), datetime.now(timezone.utc)+timedelta(days=40))
+            if len(joined_competitions) > 0:    
+                added_buttons = 0            
+                for comp in joined_competitions:
+                    comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                    submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
+                    if len(submitted_files) < comp.MaxFilesPerMember:
+                        if (file.TextSize >= comp.MinTextSize) and (file.TextSize <= comp.MaxTextSize):
+                            chat = self.Db.FindChat()
+                            button_caption = self.MakeUseFileInCompetitionButtonCaption(comp, chat)
+                            keyboard.append([InlineKeyboardButton(button_caption, callback_data='file_use_'+str(file.Id)+"_"+str(comp.Id))])
+                            added_buttons += 1
+                            if added_buttons >= 5:
+                                break
+                            
+
+
 
         list_buttons_line = []
         if file_index > 0:
@@ -432,7 +455,7 @@ class LitGBot:
             if len(query.data) < 7:
                 raise LitGBException("invalid query.data value: "+query.data)
             qdata = query.data[5:]
-            params = qdata.split("_", 1)        
+            params = qdata.split("_", 2)
 
             if params[0] == "show":
                 file_id = int(params[1])                
@@ -453,7 +476,7 @@ class LitGBot:
                     raise LitGBException("file not found in file list")
                 await query.edit_message_text(
                             text=self.file_menu_message(f),
-                            reply_markup=self.file_menu_keyboard(file_index, files))
+                            reply_markup=self.file_menu_keyboard(file_index, files, update.effective_user.id))
             elif params[0] == "delete":  
                 file_id = int(params[1])                
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
@@ -474,6 +497,15 @@ class LitGBot:
                 file_id = int(params[1])
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
                 await self.SendFB2(f, update, context)
+            elif params[0] == "use":
+                file_id = int(params[1])
+                comp_id = int(params[2])
+                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+                comp = self.FindFileAcceptableCompetitiion(comp_id)
+                raise NotImplementedError("params[0] == \"use\"")
+            
+                await query.edit_message_text(
+                    text="Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))
             else:
                 raise LitGBException("unknown menu action: "+params[0])
         except LitGBException as ex:
@@ -494,9 +526,9 @@ class LitGBot:
         files = self.Db.GetFileList(update.effective_user.id, 30)
         if len(files) > 0:
             files.sort(key=lambda x: x.Loaded)                
-            await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files))   
+            await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files, update.effective_user.id))   
         else:
-            await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, []))   
+            await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, [], update.effective_user.id))   
    
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
@@ -687,7 +719,7 @@ class LitGBot:
         logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         
-        list_type = "allactive"
+        list_type = "allactiveattached"
         if update.effective_user.id != update.effective_chat.id:            
             list_type = "chatrelated"
 
@@ -840,7 +872,12 @@ class LitGBot:
             return comp
             
         raise LitGBException(reason)
-        
+    
+    def FindFileAcceptableCompetitiion(self, id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(id)
+        if comp.Started is None:
+            raise LitGBException("конкурс ещё не стартовал, приём файлов возможен только в стартовавший конкурс")
+        return comp
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -966,8 +1003,8 @@ class LitGBot:
 
         if list_type == "chatrelated":
             return self.Db.SelectChatRelatedCompetitions(chat_id, after, before)
-        elif list_type == "allactive":
-            return self.Db.SelectActiveCompetitions(after, before)
+        elif list_type == "allactiveattached":
+            return self.Db.SelectActiveAttachedCompetitions(after, before)
         elif list_type == "my":
             return self.Db.SelectUserRelatedCompetitions(user_id, after, before)        
         

@@ -515,10 +515,10 @@ class DbWorkerService:
         return result         
     
     @ConnectionPool    
-    def SelectActiveCompetitions(self, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+    def SelectActiveAttachedCompetitions(self, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
         """ return sorted list"""
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE finished IS NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (after, before))        
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE finished IS NULL AND chat_id IS NOT NULL AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (after, before))        
         rows = ps_cursor.fetchall()
 
         result = []
