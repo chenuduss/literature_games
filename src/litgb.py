@@ -540,15 +540,24 @@ class LitGBot:
 
     async def set_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
-        self.CheckPrivateOnly(update)
+        if update.effective_user.id != update.effective_chat.id:
+            return
         if not (update.effective_user.id in self.Admins):
             return
 
     async def set_allusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        if update.effective_user.id != update.effective_chat.id:
+            return
+        if not (update.effective_user.id in self.Admins):
+            return        
 
     async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))             
+        if update.effective_user.id != update.effective_chat.id:
+            return
+        if not (update.effective_user.id in self.Admins):
+            return        
         
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
