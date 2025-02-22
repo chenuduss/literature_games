@@ -34,7 +34,12 @@ class UserInfo:
         return self.Id == other.Id
 
     def __ne__(self, other):
-        return not self.__eq__(other)        
+        return not self.__eq__(other) 
+
+class ChatInfo:
+    def __init__(self, id:int, title:str):
+        self.Id = id
+        self.Title = title           
 
 class FileInfo:
     def __init__(self, id: int, title:str, size:int, text_size:int, locked:bool, loaded:datetime, file_path:str|None, owner:int):
@@ -142,6 +147,16 @@ class DbWorkerService:
             return rows[0][0] 
                 
         return 0
+    
+    @ConnectionPool    
+    def FindChat(self, id:int, connection=None) -> int:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT title FROM chat WHERE id = %s", (id, ))        
+        rows = ps_cursor.fetchall()
+        if len(rows) > 0:            
+            return ChatInfo(id, rows[0][0])
+                
+        return None    
 
     @ConnectionPool    
     def IsUploadAllowedForUser(self, user_id:int, connection=None) -> bool:
@@ -407,10 +422,18 @@ class DbWorkerService:
         ps_cursor.execute("UPDATE competition SET subject = %s WHERE id = %s ", (subject, comp_id)) 
         connection.commit() 
 
-        return self.FindCompetition(comp_id)    
+        return self.FindCompetition(comp_id)  
+
+    @ConnectionPool
+    def SetCompetitionSubjectExt(self, comp_id:int, subject_ext:str, connection=None) -> CompetitionInfo:            
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET subject_ext = %s WHERE id = %s ", (subject_ext, comp_id)) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)        
     
     @ConnectionPool
-    def StartCompetition(self, comp_id:int, subject:str, connection=None) -> CompetitionInfo:
+    def StartCompetition(self, comp_id:int, connection=None) -> CompetitionInfo:
         ps_cursor = connection.cursor()  
         ps_cursor.execute("UPDATE competition SET started = (current_timestamp AT TIME ZONE 'UTC') WHERE id = %s ", (comp_id, )) 
         connection.commit() 
