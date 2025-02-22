@@ -244,7 +244,8 @@ class DbWorkerService:
         ps_cursor.execute("UPDATE uploaded_file SET title = %s WHERE id = %s ", (title, id)) 
         connection.commit() 
 
-        return self.FindFile(id)    
+        return self.FindFile(id)   
+     
         
 
     @ConnectionPool    
@@ -391,6 +392,14 @@ class DbWorkerService:
         connection.commit() 
 
         return self.FindCompetition(comp_id) 
+    
+    @ConnectionPool    
+    def SetCompetitionTextLimits(self, id:int, min:int, max:int, connection=None) -> FileInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET min_text_size = %s, max_text_size = %s WHERE id = %s ", (min, max, id)) 
+        connection.commit() 
+
+        return self.FindCompetition(id)      
 
     @ConnectionPool
     def SetCompetitionSubject(self, comp_id:int, subject:str, connection=None) -> CompetitionInfo:            
@@ -399,6 +408,15 @@ class DbWorkerService:
         connection.commit() 
 
         return self.FindCompetition(comp_id)    
+    
+    @ConnectionPool
+    def StartCompetition(self, comp_id:int, subject:str, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET started = (current_timestamp AT TIME ZONE 'UTC') WHERE id = %s ", (comp_id, )) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)    
+
 
     @ConnectionPool
     def FinishCompetition(self, comp_id:int, canceled:bool = False, connection=None) -> CompetitionInfo:

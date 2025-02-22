@@ -89,6 +89,10 @@ class LitGBot:
         self.DefaultMaxTextSize = 40000
         self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
         self.CompetitionsListDefaultPastInterval = timedelta(days=3)
+        self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
+        self.MinTextSize = 5000
+        self.MaxTextSize = 120000
+        self.TextLimitChangeStep = 2500
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -524,7 +528,7 @@ class LitGBot:
         return datetime.now(timezone.utc)+self.DefaultAcceptDeadlineTimedelta
     
     def SelectFirstAvailableAcceptDeadlineForChat(self, chat_id:int, min_ts:datetime, polling_stage_interval_secs:int) -> datetime:
-        comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
+        comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+self.MaxCompetitionDeadlineFutureInterval+timedelta(days=1))
         if len(comps) > 0:
             for i in range(0, len(comps)-1):
                 if (comps[i+1].AcceptFilesDeadline - comps[i].PollingDeadline).total_seconds() >= polling_stage_interval_secs:
@@ -534,9 +538,26 @@ class LitGBot:
         
         return min_ts
     
+    @staticmethod
+    def CheckDeadlinesIntersection(comp1:CompetitionInfo, comp2:CompetitionInfo) -> bool:
+        if (comp1.AcceptFilesDeadline <= comp2.PollingDeadline) and (comp1.AcceptFilesDeadline >= comp2.AcceptFilesDeadline):
+            return False
+        
+        if (comp1.PollingDeadline <= comp2.PollingDeadline) and (comp1.PollingDeadline >= comp2.AcceptFilesDeadline):
+            return False
+        
+        if (comp1.PollingDeadline >= comp2.PollingDeadline) and (comp1.AcceptFilesDeadline <= comp2.AcceptFilesDeadline):
+            return False
+        
+        return True
+    
     def CheckCompetitionDeadlines(self, chat_id:int, comp:CompetitionInfo) -> bool:
-        comps = self.Db.SelectActiveCompetitionsInChat(chat_id, min_ts, min_ts+timedelta(days=40))
-        raise NotImplementedError("CheckCompetitionDeadlines")
+        comps = self.Db.SelectActiveCompetitionsInChat(chat_id, comp.AcceptFilesDeadline, comp.AcceptFilesDeadline+self.MaxCompetitionDeadlineFutureInterval+timedelta(days=1))
+        for c in comps:
+            if self.CheckDeadlinesIntersection(comp, c):
+                return False
+
+        return True
     
     def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
 
@@ -638,7 +659,7 @@ class LitGBot:
         comp = self.FindNotAttachedCompetition(comp_id)
         if comp.CreatedBy != update.effective_user.id:
             raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
-        if not self.CheckCompetitionDeadlines():
+        if not self.CheckCompetitionDeadlines(update.effective_chat.id, comp):
             raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
         comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
         self.AfterCompetitionAttach(comp, context)
@@ -853,9 +874,8 @@ class LitGBot:
             return (m.group(1), m.group(2), int(m.group(3)))
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
-
-    @staticmethod
-    def comp_menu_keyboard(list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str, chat_id:int):
+    
+    def comp_menu_keyboard(self, list_type:str, comp_index:int, comp_stat:CompetitionStat, comp_list:list[CompetitionInfo], user_id:str, chat_id:int):
 
         keyboard = []
 
@@ -871,6 +891,25 @@ class LitGBot:
         if (user_id == comp.CreatedBy) and (user_id == chat_id):
             if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
+                keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
+
+                min_text_size_change_kbd = []
+                if comp.MinTextSize > self.MinTextSize:
+                    min_text_size_change_kbd.append(InlineKeyboardButton('MIN --', callback_data='comp_'+list_type+'_mintextdec_'+str(comp.Id)))
+                if comp.MinTextSize + self.TextLimitChangeStep < comp.MaxTextSize:
+                    min_text_size_change_kbd.append(InlineKeyboardButton('MIN ++', callback_data='comp_'+list_type+'_mintextinc_'+str(comp.Id)))
+
+                if len(min_text_size_change_kbd) > 0:
+                    keyboard.append(min_text_size_change_kbd)
+
+                max_text_size_change_kbd = []
+                if comp.MaxTextSize - self.TextLimitChangeStep > comp.MinTextSize:
+                    max_text_size_change_kbd.append(InlineKeyboardButton('MAX --', callback_data='comp_'+list_type+'_maxtextdec_'+str(comp.Id)))                
+                if comp.MaxTextSize < self.MaxTextSize:
+                    max_text_size_change_kbd.append(InlineKeyboardButton('MAX ++', callback_data='comp_'+list_type+'_maxtextinc_'+str(comp.Id)))
+
+                if len(max_text_size_change_kbd) > 0:
+                    keyboard.append(max_text_size_change_kbd)                    
             if LitGBot.IsCompetitionСancelable(comp) is None:            
                 keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
 
@@ -909,6 +948,8 @@ class LitGBot:
         result +="\nТема: " + comp.Subject
         result +="\nДедлайн приёма работ: " + DatetimeToString(comp.AcceptFilesDeadline)
         result +="\nДедлайн голосования: " + DatetimeToString(comp.PollingDeadline)
+        result +="\nМинимальный размер текста: " + str(comp.MinTextSize)
+        result +="\nМаксимальный размер текста: " + str(comp.MaxTextSize)
         if comp.CreatedBy == chat_id:
             result +="\nВходной токен: " + comp.EntryToken
 
@@ -938,8 +979,27 @@ class LitGBot:
         comp = self.FindCancelableCompetition(comp_id)
         return self.Db.FinishCompetition(comp.Id, True)
         
+    
+    def ValidateTextLimits(self, min:int, max:int):
+        if min >= max:
+            raise LitGBException("минимальное размер текста должен быть меньше, чем максимальный размер")
+        if min < self.MinTextSize:
+            raise LitGBException("минимальный размер текста не может быть меньше, чем "+str(self.MinTextSize))
+        if max > self.MaxTextSize:
+            raise LitGBException("максимальный размер текста не может быть больше, чем "+str(self.MaxTextSize))        
         
+    @staticmethod
+    def GetIndex(comp:CompetitionInfo, comp_list:list[CompetitionInfo]) -> int:
+        comp_index = -1
+        for i, v in enumerate(comp_list): 
+            if v.Id == comp.Id:
+                comp_index = i
+                break
 
+        if comp_index < 0:
+            raise LitGBException("competition not found in competition list")
+        return comp_index
+                
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
 
@@ -957,21 +1017,13 @@ class LitGBot:
                 else:    
                     comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
                 
-                comp_index = -1
-                for i, v in enumerate(comp_list): 
-                    if v.Id == comp.Id:
-                        comp_index = i
-                        break
-
-                if comp_index < 0:
-                    raise LitGBException("competition not found in competition list")
-                
+                comp_index = self.GetIndex(comp, comp_list)                
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
                 
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id),
                     reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
-            elif action == "cancel":
+            elif action == "cancel":                
                 comp = self.CancelCompetition(comp_id)
                 
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
@@ -979,7 +1031,32 @@ class LitGBot:
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id), 
                     reply_markup=InlineKeyboardMarkup([]))  
-                    
+                
+            elif (action == "mintextdec") or (action == "mintextinc") or (action == "maxtextdec") or (action == "maxtextinc"):
+                comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
+
+                if action == "mintextdec":
+                    comp.MinTextSize -= self.TextLimitChangeStep
+                elif action == "mintextinc":
+                    comp.MinTextSize += self.TextLimitChangeStep
+                elif action == "maxtextdec":
+                    comp.MaxTextSize -= self.TextLimitChangeStep
+                elif action == "maxtextinc":
+                    comp.MaxTextSize += self.TextLimitChangeStep
+
+                self.ValidateTextLimits(comp.MinTextSize, comp.MaxTextSize)    
+                
+                if list_type == "singlemode":
+                    comp_list = [comp]                    
+                else:    
+                    comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)
+                comp_index = self.GetIndex(comp, comp_list)
+                comp = self.Db.SetCompetitionTextLimits(comp.Id, comp.MinTextSize, comp.MaxTextSize)
+                comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                await query.edit_message_text(
+                    text=self.comp_menu_message(comp, comp_stat, update.effective_user.id, update.effective_chat.id),
+                    reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
+             
             elif action == "setsubject":  
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
