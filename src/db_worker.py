@@ -150,8 +150,15 @@ class DbWorkerService:
     @ConnectionPool    
     def SetUserFileLimit(self, user_id:int, limit:int,  connection=None) -> None:        
         ps_cursor = connection.cursor()  
-        ps_cursor.execute("UPDATE sd_user SET file_limit = %s NULL WHERE id = %s ", (limit, user_id)) 
-        connection.commit()         
+        ps_cursor.execute("UPDATE sd_user SET file_limit = %s WHERE id = %s ", (limit, user_id)) 
+        connection.commit()   
+
+    @ConnectionPool    
+    def SetAllUsersFileLimit(self, limit:int,  connection=None) -> int:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE sd_user SET file_limit = %s ", (limit, )) 
+        connection.commit()
+        return ps_cursor.rowcount                
 
     @ConnectionPool    
     def GetUserFileLimit(self, user_id:int, connection=None) -> int:
@@ -410,7 +417,7 @@ class DbWorkerService:
     @ConnectionPool    
     def ConfirmCompetition(self, comp_id:int,connection=None) -> CompetitionInfo:
         ps_cursor = connection.cursor()  
-        ps_cursor.execute("UPDATE competition SET confirmed = (current_timestamp AT TIME ZONE 'UTC') WHERE id = %s ", (comp_id, )) 
+        ps_cursor.execute("UPDATE competition SET confirmed = current_timestamp WHERE id = %s ", (comp_id, )) 
         connection.commit() 
 
         return self.FindCompetition(comp_id)
@@ -438,6 +445,14 @@ class DbWorkerService:
         connection.commit() 
 
         return self.FindCompetition(comp_id)  
+    
+    @ConnectionPool
+    def SetDeadlines(self, comp_id:int, accept_files_deadline:datetime, polling_deadline:datetime, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET accept_files_deadline = %s, polling_deadline = %s WHERE id = %s ", (accept_files_deadline, polling_deadline, comp_id)) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)         
 
     @ConnectionPool
     def SetCompetitionSubjectExt(self, comp_id:int, subject_ext:str, connection=None) -> CompetitionInfo:            
@@ -515,7 +530,7 @@ class DbWorkerService:
 
         if len(rows) == 0:        
             ps_cursor.execute("INSERT INTO competition_member (comp_id, user_id, file_id) VALUES(%s, %s, %s)", (comp_id, user_id, file_id)) 
-            ps_cursor.execute("INSERT INTO uploaded_file SET locked = TRUE WHERE id = %s", (file_id, )) 
+            ps_cursor.execute("UPDATE uploaded_file SET locked = TRUE WHERE id = %s", (file_id, )) 
             connection.commit()  
 
         return self.GetCompetitionStat(comp_id)               

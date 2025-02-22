@@ -85,31 +85,7 @@ def FileToFb2Section(source_filename:str, dest_filename:str, title:str) -> int:
     
     raise UnknownFileFormatException(None)
 
-def GetTxtTextSize(source_filename:str) -> int:
-    result = 0
-    with open(source_filename, "r") as file:
-        for line in file:
-            result += len(NormalizeParagraph(line))
 
-    return result
-
-def GetDocTextSize(source_filename:str) -> int:
-    doc = docx.Document(source_filename)
-    result = 0
-    ps = GetParagraphs(doc)
-    for p in ps:
-        result += len(NormalizeParagraph(p))
-
-    return result
-
-def GetTextSize(filepath:str) -> int:
-    if filepath.endswith("docx"):
-        return GetDocTextSize(filepath)
-    elif filepath.endswith("txt"):
-        return GetTxtTextSize(filepath)
-    
-    raise UnknownFileFormatException(None)
-	
 def main():
     DocToFb2(sys.argv[1], sys.argv[2], sys.argv[1])
     

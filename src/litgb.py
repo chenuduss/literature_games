@@ -21,7 +21,7 @@ def GetRandomString(length:int) -> str:
     return ''.join(random.choice(letters) for i in range(length))
 
 def DatetimeToString(v:datetime) -> str:
-    return v.strftime("%d.%m.%Y %H:%M")
+    return v.strftime("%d.%m.%Y %H:%M %Z")
 
 def MakeHumanReadableAmount(value:int) -> str:     
     if value > 1000000:
@@ -62,6 +62,7 @@ class UserConversation:
         self.SetSubjectFor = None
         self.SetSubjectExtFor = None
         self.InputEntryTokenFor = None
+        self.SetDeadlinesFor = None
 
 class CompetitionFullInfo:
     def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None = None, chat:ChatInfo|None = None): 
@@ -101,7 +102,8 @@ class LitGBot:
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
 
-        self.Admins = set(admin[user_ids])
+        self.Admins = set(admin["user_ids"])
+        self.Timezone = timezone.utc
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -273,7 +275,8 @@ class LitGBot:
             
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
             await file.download_to_drive(file_full_path_tmp)
-            text_size = FileToFb2Section(file_full_path_tmp, file_full_path)         
+            
+            text_size = FileToFb2Section(file_full_path_tmp, file_full_path, file_title)         
             self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
             file_full_path_tmp = None
             file_size = self.FileStorage.GetFileSize(file_full_path)
@@ -328,7 +331,31 @@ class LitGBot:
 
     @staticmethod
     def ParseTwoIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> tuple[int, int]: 
-        raise NotImplementedError("ParseTwoIntArgumentCommand")
+        try:
+            parts = msg.strip().split(" ", 2)
+            if len(parts) < 3:
+                raise LitGBException("Некорректный формат команды "+command)
+            else:
+                second_part = parts[1].strip()
+                result1 = int(second_part) 
+                if not (min is None):
+                    if result1 < min:
+                        raise LitGBException("Разрешённое минимальное значение команды "+str(min))
+                if not (max is None):    
+                    if  result1 > max:
+                        raise LitGBException("Разрешённое максимальное значение команды "+str(min))
+                third_part = parts[2].strip()
+                result2 = int(third_part) 
+                if not (min is None):
+                    if result2 < min:
+                        raise LitGBException("Разрешённое минимальное значение команды "+str(min))
+                if not (max is None):    
+                    if  result2 > max:
+                        raise LitGBException("Разрешённое максимальное значение команды "+str(min))                    
+                    
+                return (result1, result2    )
+        except BaseException as ex:
+            raise LitGBException("Некорректный формат команды "+command)
 
     @staticmethod
     def ParseSingleIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> int: 
@@ -440,7 +467,7 @@ class LitGBot:
                     comp_stat = self.Db.GetCompetitionStat(comp.Id)
                     if self.IsFileAcceptableFromUser(comp, comp_stat, user_id, file.Id):
                         if (file.TextSize >= comp.MinTextSize) and (file.TextSize <= comp.MaxTextSize):
-                            chat = self.Db.FindChat()
+                            chat = self.Db.FindChat(comp.ChatId)
                             button_caption = self.MakeUseFileInCompetitionButtonCaption(comp, chat)
                             keyboard.append([InlineKeyboardButton(button_caption, callback_data='file_use_'+str(file.Id)+"_"+str(comp.Id))])
                             added_buttons += 1
@@ -544,6 +571,9 @@ class LitGBot:
             return
         if not (update.effective_user.id in self.Admins):
             return
+        user_id, limit = self.ParseTwoIntArgumentCommand(update.message.text, "/set_filelimit", 0)
+        self.Db.SetUserFileLimit(user_id, limit)
+        await update.message.reply_text("Лимит у пользователя "+str(user_id)+" установлен в значение "+str(limit))
 
     async def set_allusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
@@ -551,6 +581,9 @@ class LitGBot:
             return
         if not (update.effective_user.id in self.Admins):
             return        
+        limit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_allusers_filelimit", 0) 
+        affected_users = self.Db.SetAllUsersFileLimit(limit)
+        await update.message.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
 
     async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))             
@@ -573,6 +606,18 @@ class LitGBot:
         else:
             await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, [], update.effective_user.id))   
    
+    @staticmethod
+    def ParseDeadlines(v:str, tz:timezone) -> tuple[datetime, datetime]:
+        deadlines = v.strip().split("/", 1)
+        if len(deadlines) != 2:
+            raise LitGBException("неправильный формат дедлайнов")
+        d1 = datetime.strptime(deadlines[0].strip(), '%d.%m.%Y %H:%M')
+        d2 = datetime.strptime(deadlines[1].strip(), '%d.%m.%Y %H:%M')
+
+        d1 = d1.astimezone(tz)
+        d2 = d2.astimezone(tz)        
+        
+        return (d1, d2)
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
         logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))        
@@ -592,15 +637,17 @@ class LitGBot:
                 logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+new_subj) 
                 if len(new_subj) < 3:
                     raise LitGBException("Тема не может быть меньше трёх символов")
-                self.Db.SetCompetitionSubject(convers.SetSubjectFor, new_subj)
-                await update.message.reply_text("Новая тема для конкурса #"+str(convers.SetSubjectFor)+" установлена: "+new_subj)
+                comp = self.FindPropertyChangableCompetition(convers.SetSubjectFor, update.effective_user.id)
+                self.Db.SetCompetitionSubject(comp.Id, new_subj)
+                await update.message.reply_text("Новая тема для конкурса #"+str(comp.Id)+" установлена: "+new_subj)
             elif not (convers.SetSubjectExtFor is None):
                 new_subjext = update.message.text.strip()
                 logging.info("[COMP_SETSUBJEXT] new subject for competition #"+str(convers.SetSubjectExtFor)+": "+new_subjext) 
                 if len(new_subjext) < 3:
                     raise LitGBException("Пояснение не может быть меньше трёх символов")
-                self.Db.SetCompetitionSubjectExt(convers.SetSubjectExtFor, new_subjext)
-                await update.message.reply_text("Новое пояснение для конкурса #"+str(convers.SetSubjectExtFor)+" установлено:\n\n"+new_subjext)                
+                comp = self.FindPropertyChangableCompetition(convers.SetSubjectExtFor, update.effective_user.id)
+                self.Db.SetCompetitionSubjectExt(comp.Id, new_subjext)
+                await update.message.reply_text("Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n"+new_subjext)                
             elif  not (convers.InputEntryTokenFor is None):    
                 token = update.message.text.strip()
                 logging.info("[INPUT_TOKEN] input entry token for competition #"+str(convers.SetSubjectFor)+": "+token) 
@@ -612,7 +659,17 @@ class LitGBot:
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
                 comp = self.AfterJoinMember(comp, comp_stat, context)
                 await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
-
+            elif  not (convers.SetDeadlinesFor is None):
+                new_deadlines = update.message.text.strip()
+                logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+new_deadlines) 
+                accept_files_deadline, polling_deadline = self.ParseDeadlines(new_deadlines, self.Timezone)
+                comp = self.FindPropertyChangableCompetition(convers.SetDeadlinesFor, update.effective_user.id)
+                if not (comp.ChatId is None):
+                    if not self.CheckCompetitionDeadlines(comp.ChatId,):
+                        raise LitGBException("новые дедлайны пересекаются с дедлайнами других конкурсов")
+                    
+                comp = self.Db.SetDeadlines(comp.Id, accept_files_deadline, polling_deadline)
+                await update.message.reply_text("Дедлайны для конкурса #"+str(comp.Id)+" установлены: "+DatetimeToString(comp.AcceptFilesDeadline)+" / "+DatetimeToString(comp.PollingDeadline))
     
     def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
         return datetime.now(timezone.utc)+self.DefaultAcceptDeadlineTimedelta
@@ -1014,6 +1071,7 @@ class LitGBot:
                 if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
                     keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
+                    keyboard.append([InlineKeyboardButton('Установить дедлайны', callback_data='comp_'+list_type+'_setdeadlines_'+str(comp.Id))])
 
                     min_text_size_change_kbd = []
                     if comp.MinTextSize > self.MinTextSize:
@@ -1041,7 +1099,9 @@ class LitGBot:
                             max_files_change_kbd.append(InlineKeyboardButton('MAXFILES ++', callback_data='comp_'+list_type+'_maxfilesinc_'+str(comp.Id)))
 
                         if len(max_files_change_kbd) > 0:
-                            keyboard.append(max_files_change_kbd)                                      
+                            keyboard.append(max_files_change_kbd)
+
+
                 if LitGBot.IsCompetitionСancelable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
         
@@ -1081,6 +1141,11 @@ class LitGBot:
             result +="самосуд"    
 
         result +="\nСоздан: " + DatetimeToString(comp_info.Comp.Created)
+        if not (comp_info.Comp.Confirmed is None):
+            result +="\nПодтверждён: " + DatetimeToString(comp_info.Comp.Confirmed)
+        if not (comp_info.Comp.Started is None):
+            result +="\nЗапущен: " + DatetimeToString(comp_info.Comp.Started)    
+
         if not (comp_info.Chat is None):
             result +="\nКонфа: " + comp_info.Chat.Title
         result +="\nТема: " + comp_info.Comp.Subject
@@ -1207,7 +1272,7 @@ class LitGBot:
                 
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),
-                    reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_stat, comp_list, update.effective_user.id, update.effective_chat.id))
+                    reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
             elif action == "cancel":                
                 comp = self.CancelCompetition(comp_id)
                 
@@ -1244,6 +1309,13 @@ class LitGBot:
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),
                     reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
              
+            elif action == "setdeadlines":
+                comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
+                uconv = UserConversation()
+                uconv.SetDeadlinesFor = comp.Id
+                self.UserConversations[update.effective_user.id] = uconv
+                await query.edit_message_text(
+                    text="Введите две отметки времени разделённых знаком \"/\". Первая дедлайн приёма работа, вторая дедлайн голосования. Формат отметки времени: ДД.ММ.ГГГГ Час:Минута\n Время принимается в UTC0\n\nНапример: 27.11.2024 23:46/30.11.2024 22:41", reply_markup=InlineKeyboardMarkup([]))
             elif action == "setsubject":  
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
