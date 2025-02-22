@@ -399,6 +399,19 @@ class LitGBot:
     @staticmethod
     def MakeUseFileInCompetitionButtonCaption(comp:CompetitionInfo, chat:ChatInfo) -> str:
         return "#"+str(comp.Id)+" "+chat.Title
+    
+    @staticmethod
+    def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file_id:int) -> bool:
+        submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
+        if len(submitted_files) >= comp.MaxFilesPerMember:
+            return False
+        
+        for f in submitted_files:
+            if f.Id == file_id:
+                return False
+        
+        return True
+            
 
     def file_menu_keyboard(self, file_index:int, files:list[FileInfo], user_id:int):
         if len(files) == 0:
@@ -420,8 +433,7 @@ class LitGBot:
                 added_buttons = 0            
                 for comp in joined_competitions:
                     comp_stat = self.Db.GetCompetitionStat(comp.Id)
-                    submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
-                    if len(submitted_files) < comp.MaxFilesPerMember:
+                    if self.IsFileAcceptableFromUser(comp, comp_stat, user_id, file.Id):
                         if (file.TextSize >= comp.MinTextSize) and (file.TextSize <= comp.MaxTextSize):
                             chat = self.Db.FindChat()
                             button_caption = self.MakeUseFileInCompetitionButtonCaption(comp, chat)
@@ -501,11 +513,16 @@ class LitGBot:
                 file_id = int(params[1])
                 comp_id = int(params[2])
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
-                comp = self.FindFileAcceptableCompetitiion(comp_id)
-                raise NotImplementedError("params[0] == \"use\"")
-            
+                comp = self.FindFileAcceptableCompetition(comp_id)
+                if (f.TextSize < comp.MinTextSize) or (f.TextSize > comp.MaxTextSize):
+                    raise LitGBException("file not acceptable for competition")
+                comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                if not self.IsFileAcceptableFromUser(comp, comp_stat, update.effective_user.id, f.Id):
+                    raise LitGBException("file not acceptable for competition from this user")
+                
+                comp_stat = self.Db.UseFileInCompetition(comp.Id, update.effective_user.id, f.Id)            
                 await query.edit_message_text(
-                    text="Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))
+                    text="Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))            
             else:
                 raise LitGBException("unknown menu action: "+params[0])
         except LitGBException as ex:
@@ -873,7 +890,7 @@ class LitGBot:
             
         raise LitGBException(reason)
     
-    def FindFileAcceptableCompetitiion(self, id:int) -> CompetitionInfo:
+    def FindFileAcceptableCompetition(self, id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(id)
         if comp.Started is None:
             raise LitGBException("конкурс ещё не стартовал, приём файлов возможен только в стартовавший конкурс")

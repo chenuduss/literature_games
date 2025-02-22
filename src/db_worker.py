@@ -499,7 +499,21 @@ class DbWorkerService:
             ps_cursor.execute("INSERT INTO competition_member (comp_id, user_id) VALUES(%s, %s)", (comp_id, user_id)) 
             connection.commit()  
 
-        return self.GetCompetitionStat(comp_id)    
+        return self.GetCompetitionStat(comp_id)   
+
+    @ConnectionPool    
+    def UseFileInCompetition(self, comp_id:int, user_id:int, file_id:int, connection=None) -> CompetitionStat:
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT comp_id FROM competition_member WHERE comp_id = %s AND user_id = %s AND file_id = %s", (comp_id, user_id, file_id))        
+        rows = ps_cursor.fetchall()
+
+        if len(rows) == 0:        
+            ps_cursor.execute("INSERT INTO competition_member (comp_id, user_id, file_id) VALUES(%s, %s, %s)", (comp_id, user_id, file_id)) 
+            ps_cursor.execute("INSERT INTO uploaded_file SET locked = TRUE WHERE id = %s", (file_id, )) 
+            connection.commit()  
+
+        return self.GetCompetitionStat(comp_id)               
+
     
     @ConnectionPool    
     def SelectChatRelatedCompetitions(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
