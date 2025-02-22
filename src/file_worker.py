@@ -20,3 +20,6 @@ class FileStorage:
     def DeleteFileFullPath(self, file_path:str):
         if os.path.exists(file_path):
             os.remove(file_path)
+
+    def GetFileSize(self, file_path:str) -> int:
+        return os.path.getsize(file_path)

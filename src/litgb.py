@@ -274,12 +274,13 @@ class LitGBot:
             text_size = FileToFb2Section(file_full_path_tmp, file_full_path)         
             self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
             file_full_path_tmp = None
-            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" download success. Text size: "+str(text_size)) 
+            file_size = self.FileStorage.GetFileSize(file_full_path)
+            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" fb2 section file size "+str(file_size)+" download success. Text size: "+str(text_size)) 
 
-            _ = self.Db.InsertFile(update.effective_user.id, file_title, file.file_size, text_size, file_full_path)
+            _ = self.Db.InsertFile(update.effective_user.id, file_title, file_size, text_size, file_full_path)
             file_full_path = None
 
-            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+", text size: "+str(text_size)+". Insert to DB success") 
+            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" fb2 section file size "+str(file_size)+", text size: "+str(text_size)+". Insert to DB success") 
 
             reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ MakeHumanReadableAmount(text_size)
             if not (deleted_file_name is None):
@@ -986,6 +987,20 @@ class LitGBot:
         if comp_info.Comp.CreatedBy == chat_id:
             result +="\nВходной токен: " + comp_info.Comp.EntryToken
 
+        if user_id == chat_id:
+            if self.IsMemberRegisteredInCompetition(comp_info.Stat, user_id):
+                result +="\nВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
+
+                user_files = comp_info.Stat.SubmittedFiles.get(user_id, [])
+                if len(user_files) > 0:
+                    result +="\nВаши файлы на этом конкурсе:"
+                    i = 0
+                    for f in comp_info.Stat.SubmittedFiles[user_id]:
+                        i += 1
+                        result +="\n"+str(i)+". ("+str(MakeHumanReadableAmount(f.TextSize))+") "+f.Title
+                else:
+                    result +="\nВы ещё не прикрепляли файлы к конкурсу"
+
         
         result +="\nЗарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
 
@@ -1002,7 +1017,7 @@ class LitGBot:
 
         if comp_info.Comp.IsOpenType() or comp_info.Comp.IsPollingStarted():
             result +="\nСуммарно присланный текст: " + str(comp_info.Stat.TotalSubmittedTextSize)
-
+        
 
         return result
     

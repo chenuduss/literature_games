@@ -114,12 +114,15 @@ class CompetitionStat:
             comp_id:int,             
             registered_members:list[UserInfo], 
             submitted_members:list[UserInfo], 
-            submitted_file_count:int, 
+            submitted_files:dict[int, list[FileInfo]], 
             total_submitted_text_size:int):
         self.CompId = comp_id
         self.RegisteredMembers = registered_members
         self.SubmittedMembers = submitted_members
-        self.SubmittedFileCount:int = submitted_file_count
+        self.SubmittedFiles = submitted_files
+        self.SubmittedFileCount = 0
+        for user_files in self.SubmittedFiles.values():
+            self.SubmittedFileCount += len(user_files)
         self.TotalSubmittedTextSize = total_submitted_text_size
 
 
@@ -459,7 +462,7 @@ class DbWorkerService:
     def GetCompetitionStat(self, comp_id:int, connection=None) -> CompetitionStat:
         ps_cursor = connection.cursor()          
         ps_cursor.execute(
-            "SELECT u.id, u.title, uf.text_size FROM "+
+            "SELECT u.id, u.title, uf.text_size, uf.Id, uf.title, uf.file_size, uf.locked, uf.ts, uf.file_path FROM "+
             "competition_member as cm "+
             "INNER JOIN sd_user AS u ON cm.user_id = u.id "+
             "LEFT OUTER JOIN uploaded_file AS uf ON cm.file_id = uf.id "
@@ -468,17 +471,22 @@ class DbWorkerService:
 
         registered_users = set()
         total_text_size = 0
-        file_count = 0
+        submitted_files:dict[int, list[FileInfo]] = {}
         submitted_members = set()
         for row in rows:
             usr = UserInfo(row[0], row[1])
             registered_users.add(usr)
             if not (row[2] is None):
+                
                 submitted_members.add(usr)
-                file_count += 1
+                if not (usr.Id in submitted_files):
+                    submitted_files[usr.Id] = []
+
+                submitted_files[usr.Id].append(
+                    FileInfo(row[3], row[4], row[5], row[2], row[6], row[7], row[8], usr.Id))
                 total_text_size += row[2]
 
-        return CompetitionStat(comp_id, list(registered_users), list(submitted_members), file_count, total_text_size)
+        return CompetitionStat(comp_id, list(registered_users), list(submitted_members), submitted_files, total_text_size)
         
     
     @ConnectionPool    
@@ -556,4 +564,5 @@ class DbWorkerService:
         registered = self.SelectUserRegisteredCompetitions(user_id, after, before)
         result = self.MergeCompetitionLists(created, registered)
         result.sort(key=lambda x: x.Сreated)
-        return result
+        return result  
+    
