@@ -1228,7 +1228,9 @@ class LitGBot:
                     await query.edit_message_text(
                         text="Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
             elif action == "leave":
-                pass
+                raise NotImplementedError("action == leave")
+            elif action == "releasefiles":
+                raise NotImplementedError("action == releasefiles")
             else:
                 raise LitGBException("unknown menu action: "+action)
             
