@@ -17,18 +17,27 @@ def NormalizeParagraph(par:str) -> str:
 def MakeParagraph(par:str)->str:
     return "<p>"+NormalizeParagraph(par)+"</p>"
 
-def MakeSection(pars:list[str], title:str)->str:
+def GetTextSize(par:str) -> int:
+    return len(par)
+
+def MakeSection(pars:list[str], title:str)-> tuple[str, int]:
     result = "<section>\n<title><p>"+title+"</p></title>\n"
+    text_size = 0
     for p in pars:
+        text_size += GetTextSize(p)
         result += MakeParagraph(p)
         result += "\n"
 
     result += "</section>"
 
-    return result
+    return (result, text_size)
 
 
-def MakeFB2(pars:list[str], title:str) -> str:
+def SectionToFb2(section_filename:str, dest_filename:str, title:str):
+
+    with open(section_filename, 'r') as content_file:
+        f2b_section_content = content_file.read()
+
     date_value_short = datetime.now().strftime("%Y-%m-%d")
     date_value_long = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -40,32 +49,39 @@ def MakeFB2(pars:list[str], title:str) -> str:
     result += "<date value=\""+date_value_short+"\">"+date_value_long+"</date><id>33247</id><version>1.00</version>\n</document-info>\n<publish-info />\n</description>"
     result += "\n<body>\n<title>"+title+"</title>\n"
     
-    result += MakeSection(pars, title)
+    result += f2b_section_content
 
     result += "\n</body>"
 
-    return result
+    with open(dest_filename, 'w') as f:
+        f.write(result)
 
-def TxtToFb2(source_filename:str, dest_filename:str, title:str):
+def SaveSection(dest_filename:str, text:str):
+    with open(dest_filename, 'w') as f:
+        f.write(text)
+
+def TxtToFb2Section(source_filename:str, dest_filename:str, title:str)  -> int:
     ps = []
     with open(source_filename, "r") as file:
         for line in file:
             ps.append(line)
     
-    with open(dest_filename, 'w') as f:
-        f.write(MakeFB2(ps, title))    
+    section_text, text_size = MakeSection(ps, title)
+    SaveSection(dest_filename, section_text)
+    return  text_size  
 
-def DocToFb2(source_filename:str, dest_filename:str, title:str):
+def DocToFb2Section(source_filename:str, dest_filename:str, title:str)  -> int:
     doc = docx.Document(source_filename)    
     ps = GetParagraphs(doc)
-    with open(dest_filename, 'w') as f:
-        f.write(MakeFB2(ps, title))
+    section_text, text_size = MakeSection(ps, title)
+    SaveSection(dest_filename, section_text)
+    return  text_size
 
-def FileToFb2(source_filename:str, dest_filename:str, title:str):
+def FileToFb2Section(source_filename:str, dest_filename:str, title:str) -> int:
     if source_filename.endswith("docx"):
-        return DocToFb2(source_filename, dest_filename, title)
+        return DocToFb2Section(source_filename, dest_filename, title)
     elif source_filename.endswith("txt"):
-        return TxtToFb2(source_filename, dest_filename, title)    
+        return TxtToFb2Section(source_filename, dest_filename, title)    
     
     raise UnknownFileFormatException(None)
 

@@ -10,7 +10,7 @@ from datetime import timedelta, datetime, timezone
 from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
-from fb2_tool import GetTextSize, FileToFb2
+from fb2_tool import FileToFb2Section, SectionToFb2
 import string
 import random
 import re
@@ -217,6 +217,7 @@ class LitGBot:
         self.DeleteOldFiles()
 
         file_full_path = None
+        file_full_path_tmp = None
         try:            
             total_files_Size = self.Db.GetFilesTotalSize()
             if total_files_Size > self.FileStorage.FileTotalSizeLimit:
@@ -254,11 +255,14 @@ class LitGBot:
                 
             if len(file_title) > self.MaxFileNameSize:
                 raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
-            file_full_path = self.FileStorage.GetFileFullPath(file_title+ext)            
+            file_full_path_tmp = self.FileStorage.GetFileFullPath(file_title+ext)            
+            file_full_path = self.FileStorage.GetFileFullPath(file_title+".fb2_section")
             
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
-            await file.download_to_drive(file_full_path)             
-            text_size = GetTextSize(file_full_path)            
+            await file.download_to_drive(file_full_path_tmp)
+            text_size = FileToFb2Section(file_full_path_tmp, file_full_path)         
+            self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
+            file_full_path_tmp = None
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" download success. Text size: "+str(text_size)) 
 
             _ = self.Db.InsertFile(update.effective_user.id, file_title, file.file_size, text_size, file_full_path)
@@ -271,6 +275,8 @@ class LitGBot:
                 reply_text += "\nБыл удалён файл "+ deleted_file_name
             await update.message.reply_text(reply_text)      
         finally:
+            if not (file_full_path_tmp is None):
+                self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
             if not (file_full_path is None):
                 self.FileStorage.DeleteFileFullPath(file_full_path)
 
@@ -342,7 +348,7 @@ class LitGBot:
         try:
             fb2_name = f.Title+".fb2"
             fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
-            FileToFb2(f.FilePath, fb2_filepath, f.Title)
+            SectionToFb2(f.FilePath, fb2_filepath, f.Title)
 
             file_obj = open(fb2_filepath, "rb")
             await context.bot.send_document(update.effective_chat.id, file_obj, filename=fb2_name)
