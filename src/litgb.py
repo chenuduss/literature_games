@@ -741,6 +741,7 @@ class LitGBot:
         return comp
     
     async def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
         if comp.IsOpenType():
             comp = self.Db.ConfirmCompetition(comp.Id)
             await self.AfterConfirmCompetition(comp, context)
@@ -816,7 +817,11 @@ class LitGBot:
             raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
         comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
         await self.AfterCompetitionAttach(comp, context)
-        await update.message.reply_text("Конкурс #"+str(comp.Id)+" привязан к текущему чату") 
+        
+        comp_info = self.GetCompetitionFullInfo(comp)                      
+        await update.message.reply_text(
+            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
                     
 
         
@@ -1233,8 +1238,14 @@ class LitGBot:
         
         if comp.IsStarted():
             await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" стартовал. Дедлайн приёма файлов: "+DatetimeToString(comp.AcceptFilesDeadline))
+            return       
+        
+
+        if not (comp.Confirmed is None):
+            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" подтверждён")
             return
 
+        await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" привязан к этому чату")
     
     def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCancelableCompetition(comp_id)
