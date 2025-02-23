@@ -1201,7 +1201,7 @@ class LitGBot:
 
 
         if comp_info.Comp.IsOpenType() or comp_info.Comp.IsPollingStarted():
-            result +="\nСуммарно присланный текст: " + str(comp_info.Stat.TotalSubmittedTextSize)
+            result +="\nСуммарно присланный текст: " + MakeHumanReadableAmount(comp_info.Stat.TotalSubmittedTextSize)
         
 
         return result
@@ -1402,12 +1402,21 @@ class LitGBot:
         self.Db.FinishCompetition(comp.Id, True)
         await self.ReportCompetitionStateToAttachedChat(comp, context)        
 
-    async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
+        self.Db.IncreaseUserWins(user.Id)
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))        
 
+    async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         await self.Db.FinishCompetition(comp.Id)
+
+        if comp.IsClosedType():
+            if len(comp_stat.SubmittedMembers) == 1:
+                self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0])
+
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 
     async def ProcessLosedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
+        self.Db.IncreaseUserLosses(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" проиграл в конкурсе #"+str(comp.Id))
 
     async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
@@ -1455,7 +1464,7 @@ class LitGBot:
 
         comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
         if self.CheckCompetitionEndCondition(comp, comp_stat):
-            await self.FinalizeSuccessCompetition(comp, context)
+            await self.FinalizeSuccessCompetition(comp, comp_stat, context)
             return
         
         await self.ReportCompetitionStateToAttachedChat(comp, context) 

@@ -160,7 +160,13 @@ class DbWorkerService:
     def IncreaseUserLosses(self, user_id:int, connection=None) -> None:        
         ps_cursor = connection.cursor()  
         ps_cursor.execute("UPDATE sd_user SET losses = losses + 1 WHERE id = %s ", (user_id, )) 
-        connection.commit()         
+        connection.commit()     
+
+    @ConnectionPool    
+    def IncreaseUserWins(self, user_id:int, connection=None) -> None:        
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE sd_user SET wins = wins + 1 WHERE id = %s ", (user_id, )) 
+        connection.commit()       
 
     @ConnectionPool    
     def SetAllUsersFileLimit(self, limit:int,  connection=None) -> int:
