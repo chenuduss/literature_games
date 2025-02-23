@@ -1436,11 +1436,11 @@ class LitGBot:
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))        
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        await self.Db.FinishCompetition(comp.Id)
+        self.Db.FinishCompetition(comp.Id)
 
         if comp.IsClosedType():
             if len(comp_stat.SubmittedMembers) == 1:
-                self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0])
+                await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0])
 
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 

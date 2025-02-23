@@ -1,8 +1,22 @@
 import docx
 import sys
+import re
 from datetime import datetime
 
-from litgb_exception import UnknownFileFormatException
+from litgb_exception import UnknownFileFormatException, LitGBException
+
+NotAllowedText = [
+    re.compile("<\\s*body\\s*>"),
+    re.compile("</\\s*body\\s*>"),
+    re.compile("</\\s*section\\s*>"),
+    re.compile("</\\s*section\\s*>")
+    re.compile("<\\s*p\\s*>"),
+    re.compile("</\\s*p\\s*>")
+]
+
+class TextValidationError(LitGBException):
+    def __init__(self, msg:str|None = None):
+        LitGBException.__init__(self, "Текст не прошёл валидацию"+ ("" if msg is None else (". Причина: "+msg)))
  
 def GetParagraphs(doc:docx.Document) -> list[str]:
     result = []
@@ -15,18 +29,34 @@ def NormalizeParagraph(par:str) -> str:
     return par.strip(" \t")
 
 def MakeParagraph(par:str)->str:
-    return "<p>"+NormalizeParagraph(par)+"</p>"
+    return "<p>"+par+"</p>"
 
 def GetTextSize(par:str) -> int:
     return len(par)
+
+def PrepareText(par:str) -> tuple[str, int]:
+    npar = NormalizeParagraph(par)
+    return (par, GetTextSize(npar))
+
+def ValidateSectionText(text:str) -> bool:
+    for regex in NotAllowedText:
+        m = regex.search(text)
+        if m:
+            return False
+    
+    return True
 
 def MakeSection(pars:list[str], title:str)-> tuple[str, int]:
     result = "<section>\n<title><p>"+title+"</p></title>\n"
     text_size = 0
     for p in pars:
-        text_size += GetTextSize(p)
-        result += MakeParagraph(p)
-        result += "\n"
+        if ValidateSectionText(p):
+            prepared_text, psize = PrepareText(p)
+            result += MakeParagraph(prepared_text)
+            result += "\n"
+            text_size += psize
+        else:
+            raise TextValidationError()    
 
     result += "</section>"
 
