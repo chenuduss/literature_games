@@ -659,7 +659,7 @@ class LitGBot:
                     raise LitGBException("неправильный входной токен")
                 
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
-                comp = self.AfterJoinMember(comp, comp_stat, context)
+                comp = await self.AfterJoinMember(comp, comp_stat, context)
                 await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
             elif  not (convers.SetDeadlinesFor is None):
                 new_deadlines = update.message.text.strip()
@@ -731,9 +731,9 @@ class LitGBot:
             
          return comp
     
-    def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+    async def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
         if comp.IsClosedType():
-            return self.CheckClosedCompetitionConfirmation(comp, comp_stat, context)
+            return await self.CheckClosedCompetitionConfirmation(comp, comp_stat, context)
         
         return comp
     
@@ -744,7 +744,7 @@ class LitGBot:
             return comp
         else:
             stat = self.Db.GetCompetitionStat(comp.Id)
-            return self.CheckClosedCompetitionConfirmation(comp, stat, context)        
+            return await self.CheckClosedCompetitionConfirmation(comp, stat, context)        
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -858,6 +858,8 @@ class LitGBot:
         self.CheckPrivateOnly(update)         
 
         comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
+        if len(comp_list) == 0:
+            await update.message.reply_text("нет конкурсов")
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
@@ -1005,12 +1007,15 @@ class LitGBot:
                     if comp.EntryToken != token:
                         raise LitGBException("неправильный входной токен")
         comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
-        comp = self.AfterJoinMember(comp, comp_stat, context)
+        comp = await self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
 
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)        
+        if update is None:
+            logging.warning("Exception: ", exc_info=context.error)
+        else:    
+            logging.warning("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)
 
         
         if isinstance(context.error, OnlyPrivateMessageAllowed):
@@ -1156,7 +1161,7 @@ class LitGBot:
         result +="\nДедлайн приёма работ: " + DatetimeToString(comp_info.Comp.AcceptFilesDeadline)
         result +="\nДедлайн голосования: " + DatetimeToString(comp_info.Comp.PollingDeadline)
         result +="\nМинимальный размер текста: " + str(comp_info.Comp.MinTextSize)
-        result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)
+        result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)        
         result +="\nМаксимум работ с одного участника: " + str(comp_info.Comp.MaxFilesPerMember)
         if comp_info.Comp.CreatedBy == chat_id:
             result +="\nВходной токен: " + comp_info.Comp.EntryToken
@@ -1343,7 +1348,7 @@ class LitGBot:
                 comp = self.FindJoinableCompetition(comp_id)
                 if comp.CreatedBy == update.effective_user.id:                    
                     comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
-                    comp = self.AfterJoinMember(comp, comp_stat, context)
+                    comp = await self.AfterJoinMember(comp, comp_stat, context)
                     await query.edit_message_text(
                         text="Заявлено участие в конкурсе #"+str(comp.Id), reply_markup=InlineKeyboardMarkup([]))                                  
                 else:
@@ -1391,7 +1396,7 @@ class LitGBot:
 
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 
-    async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE)    
+    async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         pass
             
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
@@ -1431,7 +1436,7 @@ class LitGBot:
             except BaseException as ex:
                 logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
 
-    def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE)
+    def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if not comp.IsPollingStarted():
             LitGBException("У конкурса наступил дедлайн голосования, но он не перешёл в стадию \"голосование\"")
 

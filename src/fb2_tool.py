@@ -33,10 +33,8 @@ def MakeSection(pars:list[str], title:str)-> tuple[str, int]:
     return (result, text_size)
 
 
-def SectionToFb2(section_filename:str, dest_filename:str, title:str):
+def SectionsToFb2(sections_filenames:list[str], dest_filename:str, title:str):
 
-    with open(section_filename, 'r') as content_file:
-        f2b_section_content = content_file.read()
 
     date_value_short = datetime.now().strftime("%Y-%m-%d")
     date_value_long = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -49,12 +47,18 @@ def SectionToFb2(section_filename:str, dest_filename:str, title:str):
     result += "<date value=\""+date_value_short+"\">"+date_value_long+"</date><id>33247</id><version>1.00</version>\n</document-info>\n<publish-info />\n</description>"
     result += "\n<body>\n<title>"+title+"</title>\n"
     
-    result += f2b_section_content
+    for section_filename in sections_filenames:
+        with open(section_filename, 'r') as content_file:
+            f2b_section_content = content_file.read()
+        result += f2b_section_content
 
     result += "\n</body>"
 
     with open(dest_filename, 'w') as f:
         f.write(result)
+
+def SectionToFb2(section_filename:str, dest_filename:str, title:str):
+    SectionsToFb2([section_filename], dest_filename, title)
 
 def SaveSection(dest_filename:str, text:str):
     with open(dest_filename, 'w') as f:
