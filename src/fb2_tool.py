@@ -9,7 +9,7 @@ NotAllowedText = [
     re.compile("<\\s*body\\s*>"),
     re.compile("</\\s*body\\s*>"),
     re.compile("</\\s*section\\s*>"),
-    re.compile("</\\s*section\\s*>")
+    re.compile("</\\s*section\\s*>"),
     re.compile("<\\s*p\\s*>"),
     re.compile("</\\s*p\\s*>")
 ]
