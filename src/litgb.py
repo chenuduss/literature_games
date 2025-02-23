@@ -868,6 +868,7 @@ class LitGBot:
         comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
             await update.message.reply_text("нет конкурсов")
+            return
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
@@ -878,8 +879,15 @@ class LitGBot:
         logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-        # список конкурсов, в которым можно присоединиться
-        raise LitGBException("команда в разработке")
+        comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)        
+        if len(comp_list) == 0:
+            await update.message.reply_text("нет конкурсов")
+            return
+        comp = comp_list[0]
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text(
+            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("joinable", 0, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
     
     def ParseJoinToCompetitionCommand(self, msg:str) -> tuple[int, str]:        
         try:
@@ -1135,7 +1143,6 @@ class LitGBot:
        
 
     def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
-
         after = datetime.now(timezone.utc) - self.CompetitionsListDefaultPastInterval
         before = datetime.now(timezone.utc) + self.CompetitionsListDefaultFutureInterval        
 
@@ -1145,6 +1152,9 @@ class LitGBot:
             return self.Db.SelectActiveAttachedCompetitions(after, before)
         elif list_type == "my":
             return self.Db.SelectUserRelatedCompetitions(user_id, after, before)        
+        elif list_type == "joinable":
+            return self.Db.SelectJoinableCompetitions(after, before)        
+        
         
         raise LitGBException("unknown competitions list type: "+list_type)    
     

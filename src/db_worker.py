@@ -620,6 +620,19 @@ class DbWorkerService:
 
         return result 
     
+    @ConnectionPool    
+    def SelectJoinableCompetitions(self, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:
+        """ return sorted list"""
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE polling_started IS NULL AND ((declared_member_count IS NULL AND started IS NOT NULL) OR (confirmed IS NULL)) AND polling_deadline > %s AND accept_files_deadline < %s ORDER BY accept_files_deadline", (after, before))        
+        rows = ps_cursor.fetchall()
+                                    
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result 
+    
     @staticmethod
     def MergeCompetitionLists(list1:list[CompetitionInfo], list2:list[CompetitionInfo]) -> list[CompetitionInfo]:
         total_set = set(list1).union(set(list2))
