@@ -465,11 +465,18 @@ class DbWorkerService:
     @ConnectionPool
     def StartCompetition(self, comp_id:int, connection=None) -> CompetitionInfo:
         ps_cursor = connection.cursor()  
-        ps_cursor.execute("UPDATE competition SET started = (current_timestamp AT TIME ZONE 'UTC') WHERE id = %s ", (comp_id, )) 
+        ps_cursor.execute("UPDATE competition SET started = current_timestamp  WHERE id = %s ", (comp_id, )) 
         connection.commit() 
 
         return self.FindCompetition(comp_id)    
 
+    @ConnectionPool
+    def SwitchToPollingStage(self, comp_id:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE competition SET polling_started = current_timestamp WHERE id = %s ", (comp_id, )) 
+        connection.commit() 
+
+        return self.FindCompetition(comp_id)         
 
     @ConnectionPool
     def FinishCompetition(self, comp_id:int, canceled:bool = False, connection=None) -> CompetitionInfo:
@@ -509,6 +516,13 @@ class DbWorkerService:
 
         return CompetitionStat(comp_id, list(registered_users), list(submitted_members), submitted_files, total_text_size)
         
+    @ConnectionPool    
+    def RemoveMembersWithoutFiles(self, comp_id:int, connection=None) -> CompetitionStat:    
+        ps_cursor = connection.cursor()
+        ps_cursor.execute("DELETE FROM competition_member WHERE comp_id = %s AND file_id IS NULL", (comp_id, )) 
+        connection.commit()        
+
+        return self.GetCompetitionStat(comp_id)
     
     @ConnectionPool    
     def JoinToCompetition(self, comp_id:int, user_id:int, connection=None) -> CompetitionStat:
@@ -603,8 +617,15 @@ class DbWorkerService:
     
     @ConnectionPool 
     def SelectReadyToPollingStageCompetitions(self, connection=None) -> list[CompetitionInfo]:
-        ps_cursor = connection.cursor()  
-        raise NotImplementedError("SelectReadyToPollingStageCompetitions")
+        ps_cursor = connection.cursor()                   
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE accept_files_deadline < current_timestamp AND finished IS NONE AND polling_started IS NONE ORDER BY accept_files_deadline")        
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result 
     
     @ConnectionPool 
     def SelectPollingDeadlinedCompetitions(self, connection=None) -> list[CompetitionInfo]:

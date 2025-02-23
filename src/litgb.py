@@ -1195,13 +1195,20 @@ class LitGBot:
 
         return result
     
-    async def ReportCompetitionStateToAttachedChat(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def ReportCompetitionStateToAttachedChat(self, 
+            comp:CompetitionInfo, 
+            context: ContextTypes.DEFAULT_TYPE, 
+            message:str|None = None):
+        
         if comp.ChatId is None:
             return
         
-        if comp.Finished:
+        if comp.Finished:            
             if comp.Canceled:
-                await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" отменён")
+                message_text = "Конкурс #"+str(comp.Id)+" отменён"
+                if not (message is None):
+                    message_text += "\n\nПричина: "+ message                   
+                await context.bot.send_message(comp.ChatId, message_text)
             else:    
                 await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" завершён")
             return
@@ -1368,46 +1375,86 @@ class LitGBot:
             logging.error("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
+          
+    @staticmethod      
+    def CheckCompetitionEndCondition(comp:CompetitionInfo, stat:CompetitionStat) -> bool:
+        if comp.IsClosedType():
+            return len(stat.SubmittedMembers) < 2
+        else:
+            return len(stat.SubmittedMembers) < 3
+        
+    async def CancelCompetitionWithError(self, comp: CompetitionInfo, error:str, context: ContextTypes.DEFAULT_TYPE):
+        self.Db.FinishCompetition(comp.Id, True)
+        await self.ReportCompetitionStateToAttachedChat(comp, context)        
+
+    async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
+
+    async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE)    
+        pass
             
-    def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        raise NotImplementedError("SwitchToPollingStage")
+    async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        if comp.Confirmed is None:
+            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"подтверждён\"")
+        if comp.Started is None:
+            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"стартовал\"")
+        if comp.IsPollingStarted():
+            LitGBException("Конкурса наступил дедлайн приёма файлов, но он уже перешёл в стадию \"голосование\"")
+
+        self.Db.SwitchToPollingStage(comp.Id)
+        if comp.IsClosedType():
+            await self.ProcessFailedMembers(comp, context)
+        com_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
+        if self.CheckCompetitionEndCondition(comp, com_stat):
+            await self.FinalizeSuccessCompetition(comp, context)
+            return
+        
+        await self.ReportCompetitionStateToAttachedChat(comp, context)        
+
+        
+        # выложить файлы по отдельности
+        # выложить один файл со всеми рассказами      
+
+
             
-    def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
+    async def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("CheckPollingStageStart:")
         comp_list = self.Db.SelectReadyToPollingStageCompetitions()
         for comp in comp_list:
             try:
-                self.SwitchToPollingStage(comp)
+                self.SwitchToPollingStage(comp, context)
             except LitGBException as ex:
                 logging.error("CheckPollingStageStart: ERROR on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))
                 logging.error("CheckPollingStageStart: cancel competition #"+str(comp.Id)+ " due error on switch to polling stage")
-                self.Db.FinishCompetition(comp.Id, True)
+                await self.CancelCompetitionWithError(comp, str(ex), context)
             except BaseException as ex:
                 logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
 
     def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE)
-        raise NotImplementedError("FinalizeCompetitionPolling")
+        if not comp.IsPollingStarted():
+            LitGBException("У конкурса наступил дедлайн голосования, но он не перешёл в стадию \"голосование\"")
 
-    def CheckPollingStageEnd(self, context: ContextTypes.DEFAULT_TYPE):
+    async def CheckPollingStageEnd(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("CheckPollingStageEnd:")
         comp_list = self.Db.SelectPollingDeadlinedCompetitions()
         for comp in comp_list:
             try:
-                self.FinalizeCompetitionPolling(comp)
+                self.FinalizeCompetitionPolling(comp, context)
             except LitGBException as ex:
                 logging.error("CheckPollingStageEnd: ERROR on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))
                 logging.error("CheckPollingStageEnd: cancel competition #"+str(comp.Id)+ " due error on finalize polling stage")
-                self.Db.FinishCompetition(comp.Id, True)
+                await self.CancelCompetitionWithError(comp, str(ex), context)
             except BaseException as ex:
                 logging.error("CheckPollingStageEnd: EXCEPTION on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))          
             
-    def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
-        self.CheckPollingStageStart(context)    
-        self.CheckPollingStageEnd(context)  
+    async def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
+        await self.CheckPollingStageStart(context)    
+        await self.CheckPollingStageEnd(context)  
             
     async def event_five_minutes(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("event_five_minutes:")
-        self.CheckCompetitionStates(context)
+        await self.CheckCompetitionStates(context)
 
 
 if __name__ == '__main__':
