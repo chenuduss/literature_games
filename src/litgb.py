@@ -1369,8 +1369,41 @@ class LitGBot:
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
             
+    def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        raise NotImplementedError("SwitchToPollingStage")
+            
+    def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
+        logging.info("CheckPollingStageStart:")
+        comp_list = self.Db.SelectReadyToPollingStageCompetitions()
+        for comp in comp_list:
+            try:
+                self.SwitchToPollingStage(comp)
+            except LitGBException as ex:
+                logging.error("CheckPollingStageStart: ERROR on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))
+                logging.error("CheckPollingStageStart: cancel competition #"+str(comp.Id)+ " due error on switch to polling stage")
+                self.Db.FinishCompetition(comp.Id, True)
+            except BaseException as ex:
+                logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
+
+    def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE)
+        raise NotImplementedError("FinalizeCompetitionPolling")
+
+    def CheckPollingStageEnd(self, context: ContextTypes.DEFAULT_TYPE):
+        logging.info("CheckPollingStageEnd:")
+        comp_list = self.Db.SelectPollingDeadlinedCompetitions()
+        for comp in comp_list:
+            try:
+                self.FinalizeCompetitionPolling(comp)
+            except LitGBException as ex:
+                logging.error("CheckPollingStageEnd: ERROR on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))
+                logging.error("CheckPollingStageEnd: cancel competition #"+str(comp.Id)+ " due error on finalize polling stage")
+                self.Db.FinishCompetition(comp.Id, True)
+            except BaseException as ex:
+                logging.error("CheckPollingStageEnd: EXCEPTION on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))          
+            
     def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
-        pass
+        self.CheckPollingStageStart(context)    
+        self.CheckPollingStageEnd(context)  
             
     async def event_five_minutes(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("event_five_minutes:")
@@ -1434,3 +1467,4 @@ if __name__ == '__main__':
     app.add_error_handler(bot.error_handler)
 
     app.run_polling()
+    

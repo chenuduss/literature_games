@@ -601,3 +601,12 @@ class DbWorkerService:
         result.sort(key=lambda x: x.Сreated)
         return result  
     
+    @ConnectionPool 
+    def SelectReadyToPollingStageCompetitions(self, connection=None) -> list[CompetitionInfo]:
+        ps_cursor = connection.cursor()  
+        raise NotImplementedError("SelectReadyToPollingStageCompetitions")
+    
+    @ConnectionPool 
+    def SelectPollingDeadlinedCompetitions(self, connection=None) -> list[CompetitionInfo]:
+        ps_cursor = connection.cursor()  
+        raise NotImplementedError("SelectPollingDeadlinedCompetitions")
