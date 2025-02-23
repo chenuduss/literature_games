@@ -110,7 +110,9 @@ class CompetitionInfo:
         return self.Id == other.Id
 
     def __ne__(self, other):
-        return not self.__eq__(other)         
+        return not self.__eq__(other)
+    def __hash__(self):
+        return hash(self.Id)            
 
 class CompetitionStat:
     def __init__(self, 
@@ -627,7 +629,7 @@ class DbWorkerService:
         created = self.SelectUserCreatedCompetitions(user_id, after, before)
         registered = self.SelectUserRegisteredCompetitions(user_id, after, before)
         result = self.MergeCompetitionLists(created, registered)
-        result.sort(key=lambda x: x.Сreated)
+        result.sort(key=lambda x: x.Created)
         return result  
     
     @ConnectionPool 

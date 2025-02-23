@@ -1152,6 +1152,9 @@ class LitGBot:
         result = "#" + str(comp_info.Comp.Id)
         if comp_info.Comp.Canceled:
             result += " ОТМЕНЁН"
+        if not (comp_info.Comp.Finished is None):
+            result += " ЗАВЕРШЁН"
+
         result +="\nТип: "
         if comp_info.Comp.IsClosedType():
             result +="дуэль/жюри"
@@ -1164,7 +1167,9 @@ class LitGBot:
         if not (comp_info.Comp.Started is None):
             result +="\nЗапущен: " + DatetimeToString(comp_info.Comp.Started)    
         if not (comp_info.Comp.PollingStarted is None):
-            result +="\nГолосование начато: " + DatetimeToString(comp_info.Comp.PollingStarted)        
+            result +="\nГолосование начато: " + DatetimeToString(comp_info.Comp.PollingStarted)
+        if not (comp_info.Comp.Finished is None):
+            result +="\nЗавершён: " + DatetimeToString(comp_info.Comp.Finished)            
 
 
         if not (comp_info.Chat is None):
