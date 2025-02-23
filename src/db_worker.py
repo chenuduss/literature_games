@@ -103,6 +103,9 @@ class CompetitionInfo:
     def IsPollingStarted(self) -> bool:
         return not (self.PollingStarted is None)
     
+    def IsStarted(self) -> bool:
+        return not (self.Started is None)    
+    
     def __eq__(self, other):
         return self.Id == other.Id
 
@@ -151,7 +154,13 @@ class DbWorkerService:
     def SetUserFileLimit(self, user_id:int, limit:int,  connection=None) -> None:        
         ps_cursor = connection.cursor()  
         ps_cursor.execute("UPDATE sd_user SET file_limit = %s WHERE id = %s ", (limit, user_id)) 
-        connection.commit()   
+        connection.commit()
+
+    @ConnectionPool    
+    def IncreaseUserLosses(self, user_id:int, connection=None) -> None:        
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE sd_user SET losses = losses + 1 WHERE id = %s ", (user_id, )) 
+        connection.commit()         
 
     @ConnectionPool    
     def SetAllUsersFileLimit(self, limit:int,  connection=None) -> int:
@@ -618,7 +627,7 @@ class DbWorkerService:
     @ConnectionPool 
     def SelectReadyToPollingStageCompetitions(self, connection=None) -> list[CompetitionInfo]:
         ps_cursor = connection.cursor()                   
-        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE accept_files_deadline < current_timestamp AND finished IS NONE AND polling_started IS NONE ORDER BY accept_files_deadline")        
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE accept_files_deadline < current_timestamp AND finished IS NULL AND polling_started IS NULL ORDER BY accept_files_deadline")        
         rows = ps_cursor.fetchall()
 
         result = []
@@ -630,4 +639,11 @@ class DbWorkerService:
     @ConnectionPool 
     def SelectPollingDeadlinedCompetitions(self, connection=None) -> list[CompetitionInfo]:
         ps_cursor = connection.cursor()  
-        raise NotImplementedError("SelectPollingDeadlinedCompetitions")
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE polling_deadline < current_timestamp AND finished IS NULL AND polling_started IS NOT NULL ORDER BY polling_deadline")
+        rows = ps_cursor.fetchall()
+
+        result = []
+        for row in rows: 
+            result.append(self.MakeCompetitionInfoFromRow(row))
+
+        return result 

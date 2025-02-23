@@ -1,7 +1,7 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, UserInfo
 import logging
 import json
 import time
@@ -10,7 +10,7 @@ from datetime import timedelta, datetime, timezone
 from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
-from fb2_tool import FileToFb2Section, SectionToFb2
+from fb2_tool import FileToFb2Section, SectionToFb2, SectionsToFb2
 import string
 import random
 import re
@@ -93,18 +93,20 @@ class LitGBot:
 
         self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=15)
         self.DefaultPollingStageTimedelta = timedelta(minutes=15)
+        self.MinimumPollingStageInterval = timedelta(minutes=15)
 
         self.DefaultMinTextSize = 15000
         self.DefaultMaxTextSize = 40000
         self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
         self.CompetitionsListDefaultPastInterval = timedelta(days=3)
-        self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
+        self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)        
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
 
         self.Admins = set(admin["user_ids"])
         self.Timezone = pytz.timezone("Europe/Moscow")
+        
 
 
     @staticmethod
@@ -388,7 +390,7 @@ class LitGBot:
             raise FileNotFound(file_id)
         return result
     
-    async def SendFB2(self, f:FileInfo, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def SendFB2(self, f:FileInfo, chat_id:int, context: ContextTypes.DEFAULT_TYPE):
         fb2_filepath = None
 
         try:
@@ -397,7 +399,7 @@ class LitGBot:
             SectionToFb2(f.FilePath, fb2_filepath, f.Title)
 
             file_obj = open(fb2_filepath, "rb")
-            await context.bot.send_document(update.effective_chat.id, file_obj, filename=fb2_name)
+            await context.bot.send_document(chat_id, file_obj, filename=fb2_name)
         finally:
             if not (fb2_filepath is None):
                 self.FileStorage.DeleteFileFullPath(fb2_filepath)
@@ -413,7 +415,7 @@ class LitGBot:
         file_id = self.ParseSingleIntArgumentCommand(update.message.text, "/getfb2", 1, None)
         file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
 
-        await self.SendFB2(file, update, context)
+        await self.SendFB2(file, update.effective_chat.id, context)
            
 
 
@@ -542,7 +544,7 @@ class LitGBot:
             elif params[0] == "fb2":
                 file_id = int(params[1])
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
-                await self.SendFB2(f, update, context)
+                await self.SendFB2(f, update.effective_chat.id, context)
             elif params[0] == "use":
                 file_id = int(params[1])
                 comp_id = int(params[2])
@@ -608,8 +610,7 @@ class LitGBot:
         else:
             await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, [], update.effective_user.id))   
    
-    @staticmethod
-    def ParseDeadlines(v:str, tz:timezone) -> tuple[datetime, datetime]:
+    def ParseDeadlines(self, v:str, tz:timezone) -> tuple[datetime, datetime]:
         deadlines = v.strip().split("/", 1)
         if len(deadlines) != 2:
             raise LitGBException("неправильный формат дедлайнов")
@@ -617,7 +618,9 @@ class LitGBot:
         d2 = datetime.strptime(deadlines[1].strip(), '%d.%m.%Y %H:%M')
 
         d1 = tz.localize(d1)
-        d2 = tz.localize(d2)        
+        d2 = tz.localize(d2) 
+        if d2 <= d1 + self.MinimumPollingStageInterval:
+            raise LitGBException("Слишком короткий период голосования")
         
         return (d1, d2)
 
@@ -1014,6 +1017,7 @@ class LitGBot:
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update is None:
             logging.warning("Exception: ", exc_info=context.error)
+            return
         else:    
             logging.warning("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)
 
@@ -1117,7 +1121,9 @@ class LitGBot:
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
             if self.CheckCompetitionLeaveable(comp) is None:
-                if self.IsMemberRegisteredInCompetition(comp_stat, user_id):
+                if self.IsMemberRegisteredInCompetition(comp_stat, user_id):   
+                    if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
+                        keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
         return InlineKeyboardMarkup(keyboard)
@@ -1174,7 +1180,7 @@ class LitGBot:
                 if len(user_files) > 0:
                     result +="\nВаши файлы на этом конкурсе:"
                     i = 0
-                    for f in comp_info.Stat.SubmittedFiles[user_id]:
+                    for f in user_files:
                         i += 1
                         result +="\n"+str(i)+". ("+str(MakeHumanReadableAmount(f.TextSize))+") "+f.Title
                 else:
@@ -1218,8 +1224,12 @@ class LitGBot:
                 await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" завершён")
             return
         
-        if not (comp.PollingStarted) is None:
+        if comp.IsPollingStarted():
             await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" перешёл в стадию голосования. Дедлайн: "+DatetimeToString(comp.PollingDeadline))
+            return
+        
+        if comp.IsStarted():
+            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" стартовал. Дедлайн приёма файлов: "+DatetimeToString(comp.AcceptFilesDeadline))
             return
 
     
@@ -1394,10 +1404,42 @@ class LitGBot:
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
 
+        await self.Db.FinishCompetition(comp.Id)
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 
+    async def ProcessLosedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" проиграл в конкурсе #"+str(comp.Id))
+
     async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        pass
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)        
+        for user in comp_stat.RegisteredMembers:
+            user_files = comp_stat.SubmittedFiles.get(user.Id, [])
+            if len(user_files) == 0:
+                await self.ProcessLosedMember(comp, user, context)
+        
+
+    async def SendSubmittedFiles(self, chat_id:int, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
+        for files in comp_stat.SubmittedFiles.values():
+            for file in files:                
+                await self.SendFB2(file, chat_id, context)
+
+    async def SendMergedSubmittedFiles(self, chat_id:int, comp_id:str, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
+        section_filenames = []
+
+        for files in comp_stat.SubmittedFiles.values():
+            for file in files:                
+                section_filenames.append(file.FilePath)
+
+        merged_fb2_filepath = None
+        try:
+            file_name = "comp_"+str(comp_id)+"_all.fb2"
+            merged_fb2_filepath = self.FileStorage.GetFileFullPath(file_name)
+            SectionsToFb2(section_filenames, merged_fb2_filepath, "Конкурс #"+str(comp_id))
+            file_obj = open(merged_fb2_filepath, "rb")
+            await context.bot.send_document(chat_id, file_obj, filename=file_name)
+        finally:
+            if not (merged_fb2_filepath is None):
+                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)                              
             
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if comp.Confirmed is None:
@@ -1407,19 +1449,19 @@ class LitGBot:
         if comp.IsPollingStarted():
             LitGBException("Конкурса наступил дедлайн приёма файлов, но он уже перешёл в стадию \"голосование\"")
 
-        self.Db.SwitchToPollingStage(comp.Id)
+        self.Db.SwitchToPollingStage(comp.Id)        
         if comp.IsClosedType():
             await self.ProcessFailedMembers(comp, context)
-        com_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
-        if self.CheckCompetitionEndCondition(comp, com_stat):
+
+        comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
+        if self.CheckCompetitionEndCondition(comp, comp_stat):
             await self.FinalizeSuccessCompetition(comp, context)
             return
         
-        await self.ReportCompetitionStateToAttachedChat(comp, context)        
-
+        await self.ReportCompetitionStateToAttachedChat(comp, context) 
         
-        # выложить файлы по отдельности
-        # выложить один файл со всеми рассказами      
+        await self.SendSubmittedFiles(comp.ChatId, comp_stat, context)
+        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_stat, context) 
 
 
             
@@ -1428,7 +1470,7 @@ class LitGBot:
         comp_list = self.Db.SelectReadyToPollingStageCompetitions()
         for comp in comp_list:
             try:
-                self.SwitchToPollingStage(comp, context)
+                await self.SwitchToPollingStage(comp, context)
             except LitGBException as ex:
                 logging.error("CheckPollingStageStart: ERROR on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))
                 logging.error("CheckPollingStageStart: cancel competition #"+str(comp.Id)+ " due error on switch to polling stage")
