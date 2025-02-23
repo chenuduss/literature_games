@@ -11,8 +11,17 @@ NotAllowedText = [
     re.compile("</\\s*section\\s*>"),
     re.compile("</\\s*section\\s*>"),
     re.compile("<\\s*p\\s*>"),
-    re.compile("</\\s*p\\s*>")
+    re.compile("</\\s*p\\s*>"),
+    re.compile("<\\s*image")    
 ]
+
+IngoredOnCountingText = [
+    re.compile("<\\s*emphasis\\s*>"),
+    re.compile("</\\s*emphasis\\s*>"),
+    re.compile("<\\s*strong\\s*>"),
+    re.compile("</\\s*strong\\s*>")
+]
+
 
 class TextValidationError(LitGBException):
     def __init__(self, msg:str|None = None):
@@ -32,13 +41,20 @@ def MakeParagraph(par:str)->str:
     return "<p>"+par+"</p>"
 
 def GetTextSize(par:str) -> int:
-    return len(par)
+    global IngoredOnCountingText
+
+    text = par
+    for regex in IngoredOnCountingText:
+        text = regex.sub("", text)
+
+    return len(text)
 
 def PrepareText(par:str) -> tuple[str, int]:
     npar = NormalizeParagraph(par)
     return (par, GetTextSize(npar))
 
 def ValidateSectionText(text:str) -> bool:
+    global NotAllowedText
     for regex in NotAllowedText:
         m = regex.search(text)
         if m:
@@ -58,7 +74,7 @@ def MakeSection(pars:list[str], title:str)-> tuple[str, int]:
         else:
             raise TextValidationError()    
 
-    result += "</section>"
+    result += "\n</section>"
 
     return (result, text_size)
 
@@ -82,7 +98,7 @@ def SectionsToFb2(sections_filenames:list[str], dest_filename:str, title:str):
             f2b_section_content = content_file.read()
         result += f2b_section_content
 
-    result += "\n</body>"
+    result += "\n</body>\n</FictionBook>"
 
     with open(dest_filename, 'w') as f:
         f.write(result)

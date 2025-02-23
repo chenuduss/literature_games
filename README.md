@@ -1,4 +1,4 @@
-# Бот самодисциплины
+# Бот "Литературные игры"
 
 Бот: @literature_games_bot
 
@@ -21,8 +21,10 @@
 
 ## Запуск
 
+    pip3 install -r requirements.txt
 
-    python3 src/ysdb.py --conf test/conf.json
+
+    python3 src/litgb.py --conf test/conf.json
 
 
 
