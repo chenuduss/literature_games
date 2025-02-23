@@ -1237,7 +1237,7 @@ class LitGBot:
         if comp.ChatId is None:
             return
         
-        if comp.Finished:            
+        if not (comp.Finished is None):
             if comp.Canceled:
                 message_text = "Конкурс #"+str(comp.Id)+" отменён"
                 if not (message is None):
@@ -1245,6 +1245,7 @@ class LitGBot:
                 await context.bot.send_message(comp.ChatId, message_text)
             else:    
                 await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" завершён")
+
             return
         
         if comp.IsPollingStarted():
@@ -1436,7 +1437,7 @@ class LitGBot:
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))        
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        self.Db.FinishCompetition(comp.Id)
+        comp = self.Db.FinishCompetition(comp.Id)
 
         if comp.IsClosedType():
             if len(comp_stat.SubmittedMembers) == 1:
