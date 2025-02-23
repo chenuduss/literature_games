@@ -1158,6 +1158,9 @@ class LitGBot:
             result +="\nПодтверждён: " + DatetimeToString(comp_info.Comp.Confirmed)
         if not (comp_info.Comp.Started is None):
             result +="\nЗапущен: " + DatetimeToString(comp_info.Comp.Started)    
+        if not (comp_info.Comp.PollingStarted is None):
+            result +="\nГолосование начато: " + DatetimeToString(comp_info.Comp.PollingStarted)        
+
 
         if not (comp_info.Chat is None):
             result +="\nКонфа: " + comp_info.Chat.Title
@@ -1458,7 +1461,7 @@ class LitGBot:
         if comp.IsPollingStarted():
             LitGBException("Конкурса наступил дедлайн приёма файлов, но он уже перешёл в стадию \"голосование\"")
 
-        self.Db.SwitchToPollingStage(comp.Id)        
+        comp = self.Db.SwitchToPollingStage(comp.Id)        
         if comp.IsClosedType():
             await self.ProcessFailedMembers(comp, context)
 
@@ -1487,16 +1490,19 @@ class LitGBot:
             except BaseException as ex:
                 logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
 
-    def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if not comp.IsPollingStarted():
             LitGBException("У конкурса наступил дедлайн голосования, но он не перешёл в стадию \"голосование\"")
+
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        await self.FinalizeSuccessCompetition(comp, comp_stat, context)     
 
     async def CheckPollingStageEnd(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("CheckPollingStageEnd:")
         comp_list = self.Db.SelectPollingDeadlinedCompetitions()
         for comp in comp_list:
             try:
-                self.FinalizeCompetitionPolling(comp, context)
+                await self.FinalizeCompetitionPolling(comp, context)
             except LitGBException as ex:
                 logging.error("CheckPollingStageEnd: ERROR on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))
                 logging.error("CheckPollingStageEnd: cancel competition #"+str(comp.Id)+ " due error on finalize polling stage")
