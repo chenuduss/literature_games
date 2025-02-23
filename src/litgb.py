@@ -15,6 +15,7 @@ import string
 import random
 import re
 import traceback
+import pytz
     
 def GetRandomString(length:int) -> str:    
     letters = string.ascii_lowercase+string.ascii_uppercase    
@@ -103,7 +104,8 @@ class LitGBot:
         self.TextLimitChangeStep = 2500
 
         self.Admins = set(admin["user_ids"])
-        self.Timezone = timezone.utc
+        self.Timezone = pytz.timezone("Europe/Moscow")
+
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -168,10 +170,10 @@ class LitGBot:
     @staticmethod
     def get_help() -> str:
         result = "Команды: "
-        result += "/competition - карточка конкурса"
-        result += "/competitions - список конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
-        result += "/joinable_competitions - список конкурсов, к которым можно присоединиться"
-        result += "/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
+        result += "\n/competition - карточка конкурса"
+        result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
+        result += "\n/joinable_competitions - список конкурсов, к которым можно присоединиться"
+        result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
         
         return result
 
@@ -614,8 +616,8 @@ class LitGBot:
         d1 = datetime.strptime(deadlines[0].strip(), '%d.%m.%Y %H:%M')
         d2 = datetime.strptime(deadlines[1].strip(), '%d.%m.%Y %H:%M')
 
-        d1 = d1.astimezone(tz)
-        d2 = d2.astimezone(tz)        
+        d1 = tz.localize(d1)
+        d2 = tz.localize(d2)        
         
         return (d1, d2)
 
@@ -1315,7 +1317,7 @@ class LitGBot:
                 uconv.SetDeadlinesFor = comp.Id
                 self.UserConversations[update.effective_user.id] = uconv
                 await query.edit_message_text(
-                    text="Введите две отметки времени разделённых знаком \"/\". Первая дедлайн приёма работа, вторая дедлайн голосования. Формат отметки времени: ДД.ММ.ГГГГ Час:Минута\n Время принимается в UTC0\n\nНапример: 27.11.2024 23:46/30.11.2024 22:41", reply_markup=InlineKeyboardMarkup([]))
+                    text="Введите две отметки времени разделённых знаком \"/\". Первая дедлайн приёма работа, вторая дедлайн голосования. Формат отметки времени: ДД.ММ.ГГГГ Час:Минута\n Время принимается в зоне Europe/Moscow\n\nНапример: 27.11.2024 23:46/30.11.2024 22:41", reply_markup=InlineKeyboardMarkup([]))
             elif action == "setsubject":  
                 comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
