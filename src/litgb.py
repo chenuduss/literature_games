@@ -603,7 +603,8 @@ class LitGBot:
         logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         self.DeleteOldFiles() 
-        self.CheckPrivateOnly(update)         
+        self.CheckPrivateOnly(update)
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))     
 
         files = self.Db.GetFileList(update.effective_user.id, 30)
         if len(files) > 0:
@@ -809,6 +810,7 @@ class LitGBot:
         self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
         self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat))    
 
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
@@ -861,11 +863,17 @@ class LitGBot:
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
 
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
+        comp_info = self.GetCompetitionFullInfo(comp)                      
+        await update.message.reply_text(
+            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
-        self.CheckPrivateOnly(update)         
+        self.CheckPrivateOnly(update)
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
 
         comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
@@ -1020,10 +1028,11 @@ class LitGBot:
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)        
 
-        comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)
+        comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)        
         comp = self.FindJoinableCompetition(comp_id)
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
         if comp.CreatedBy != update.effective_user.id:
             if not (comp.EntryToken is None):
                 if len(comp.EntryToken) > 0:

@@ -689,3 +689,14 @@ class DbWorkerService:
             result.append(self.MakeCompetitionInfoFromRow(row))
 
         return result 
+    
+    @ConnectionPool 
+    def GetCurrentPollingCompetitionInChat(self, chat_id:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE chat_id = %s AND polling_started IS NOT NULL AND polling_deadline < current_timestamp", (chat_id, ))
+        rows = ps_cursor.fetchall()
+
+        if len(rows) > 0: 
+            return self.MakeCompetitionInfoFromRow(rows[0])
+
+        return None  
