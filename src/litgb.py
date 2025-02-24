@@ -864,6 +864,9 @@ class LitGBot:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
 
         comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
+        if comp is None:
+            await update.message.reply_text("нет конкурсов")
+            return
         comp_info = self.GetCompetitionFullInfo(comp)                      
         await update.message.reply_text(
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
