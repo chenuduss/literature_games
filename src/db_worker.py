@@ -130,6 +130,11 @@ class CompetitionStat:
             self.SubmittedFileCount += len(user_files)
         self.TotalSubmittedTextSize = total_submitted_text_size
 
+    def IsUserRegistered(self, user_id:int) -> bool:
+        for m in self.RegisteredMembers:
+            if m.Id == user_id:
+                return True
+        return False        
 
 class DbWorkerService:   
     def __init__(self, config:dict):
@@ -493,7 +498,23 @@ class DbWorkerService:
         ps_cursor.execute("UPDATE competition SET polling_started = current_timestamp WHERE id = %s ", (comp_id, )) 
         connection.commit() 
 
-        return self.FindCompetition(comp_id)         
+        return self.FindCompetition(comp_id) 
+    
+    @ConnectionPool
+    def UnregUser(self, comp_id:int, user_id:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()         
+        ps_cursor.execute("UPDATE uploaded_file SET locked = FALSE WHERE id IN (SELECT file_id FROM competition_member WHERE file_id IS NOT NULL AND comp_id = %s AND user_id = %s) ", (comp_id, user_id))
+        ps_cursor.execute("DELETE FROM competition_member WHERE comp_id = %s AND user_id = %s", (comp_id, user_id))
+        connection.commit() 
+        return self.FindCompetition(comp_id)        
+
+    @ConnectionPool
+    def ReleaseUserFiles(self, comp_id:int, user_id:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor()         
+        ps_cursor.execute("UPDATE uploaded_file SET locked = FALSE WHERE id IN (SELECT file_id FROM competition_member WHERE file_id IS NOT NULL AND comp_id = %s AND user_id = %s) ", (comp_id, user_id))
+        ps_cursor.execute("DELETE FROM competition_member WHERE file_id IS NOT NULL AND comp_id = %s AND user_id = %s", (comp_id, user_id))
+        connection.commit() 
+        return self.FindCompetition(comp_id)             
 
     @ConnectionPool
     def FinishCompetition(self, comp_id:int, canceled:bool = False, connection=None) -> CompetitionInfo:

@@ -438,6 +438,8 @@ class LitGBot:
     
     @staticmethod
     def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file_id:int) -> bool:
+        if not comp.IsStarted():
+            return False
         submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
         if len(submitted_files) >= comp.MaxFilesPerMember:
             return False
@@ -1009,6 +1011,9 @@ class LitGBot:
         if comp.Started is None:
             raise LitGBException("конкурс ещё не стартовал, приём файлов возможен только в стартовавший конкурс")
         return comp   
+    
+    def FindLeavableCompetition(self, id:int) -> CompetitionInfo:
+        raise NotImplementedError("FindLeavableCompetition")
 
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
@@ -1063,12 +1068,7 @@ class LitGBot:
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
         
-    @staticmethod
-    def IsMemberRegisteredInCompetition(comp_stat:CompetitionStat, user_id) -> bool:    
-        for m in comp_stat.RegisteredMembers:
-            if m.Id == user_id:
-                return True
-        return False
+
 
     
     def comp_menu_keyboard(self, 
@@ -1130,11 +1130,11 @@ class LitGBot:
                     keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
         
             if self.IsCompetitionJoinable(comp) is None:
-                if not self.IsMemberRegisteredInCompetition(comp_stat, user_id):
+                if not comp_stat.IsUserRegistered(user_id):
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
             if self.CheckCompetitionLeaveable(comp) is None:
-                if self.IsMemberRegisteredInCompetition(comp_stat, user_id):   
+                if comp_stat.IsUserRegistered(comp_stat, user_id):   
                     if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
@@ -1196,7 +1196,7 @@ class LitGBot:
             result +="\nВходной токен: " + comp_info.Comp.EntryToken
 
         if user_id == chat_id:
-            if self.IsMemberRegisteredInCompetition(comp_info.Stat, user_id):
+            if comp_info.Stat.IsUserRegistered(user_id):
                 result +="\nВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
 
                 user_files = comp_info.Stat.SubmittedFiles.get(user_id, [])
@@ -1301,8 +1301,11 @@ class LitGBot:
             chat = self.Db.FindChat(comp.ChatId)
         return CompetitionFullInfo(comp, stat, chat)
     
-    def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo) -> CompetitionFullInfo:
-        raise NotImplementedError("ReleaseUserFilesFromCompetition")
+    def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
+        if unreg:
+            self.Db.UnregUser(comp.Id, user_id)
+        else:    
+            self.Db.ReleaseUserFiles(comp.Id, user_id)
                 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1399,10 +1402,21 @@ class LitGBot:
                         text="Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
             elif action == "leave":
                 comp = self.FindLeavableCompetition(comp_id)
-                raise NotImplementedError("action == leave")
+                comp_stat = self.Db.GetCompetitionStat(comp.Id)
+                if comp_stat.IsUserRegistered(update.effective_user.id):
+                    if comp.IsClosedType():
+                        if comp.IsStarted():
+                            if comp_stat.IsUserRegistered(update.effective_user.id):
+                                LitGBException("Из закрытого стартовавшего конкурса нельзя выйти")
+                else:
+                    LitGBException("can not leave from competition, because current user not registered in them")            
+                        
+                comp_info = self.ReleaseUserFilesFromCompetition(update.effective_user.id, comp, True)    
+                await query.edit_message_text(
+                    text="Вы вышли из конкурса #"+str(comp_info.Comp.Id), reply_markup=InlineKeyboardMarkup([]))
             elif action == "releasefiles":
                 comp = self.FindFileAcceptableCompetition(comp_id)
-                comp_info = self.ReleaseUserFilesFromCompetition(update.effective_user.id, comp)
+                comp_info = self.ReleaseUserFilesFromCompetition(update.effective_user.id, comp, False)
                 list_type = "singlemode"
                 comp_list = [comp]
                 comp_index = self.GetIndex(comp, comp_list)
