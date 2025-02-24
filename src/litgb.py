@@ -810,6 +810,7 @@ class LitGBot:
         self.CompetitionChangeLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+            return
         self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
         self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat))    
 
@@ -862,6 +863,7 @@ class LitGBot:
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         if update.effective_user.id == update.effective_chat.id:
             await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+            return
 
         comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
         if comp is None:
