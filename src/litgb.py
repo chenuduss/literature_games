@@ -916,8 +916,10 @@ class LitGBot:
     
     def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindNotFinishedCompetition(comp_id)
+        if datetime.now(timezone.utc) >= comp.AcceptFilesDeadline:
+            raise LitGBException("дедлайн приёма файлов уже прошёл")    
         if not comp.IsPollingStarted():
-            return comp
+            return comp        
         
         raise LitGBException("Конкурс в стадии голосования")
     
@@ -968,7 +970,7 @@ class LitGBot:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
         if not (comp.ChatId is None):
             raise LitGBException("Конкурс уже привязан ")
-        if not (comp.Started is None):
+        if comp.IsStarted():
             raise LitGBException("Конкурс уже стартовал, а значит его уже нельзя привязать ни к какому чату")
         return comp
     
