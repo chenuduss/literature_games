@@ -467,12 +467,12 @@ class LitGBot:
         keyboard = []   
         
 
-
-        keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
-        keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
         keyboard.append([InlineKeyboardButton('FB2', callback_data='file_fb2_'+file_id_str)])
 
         if not file.Locked:
+            keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
+            keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
+            
             joined_competitions = self.Db.SelectUserRegisteredCompetitions(user_id, datetime.now(timezone.utc), datetime.now(timezone.utc)+timedelta(days=40))
             if len(joined_competitions) > 0:    
                 added_buttons = 0            
@@ -611,7 +611,7 @@ class LitGBot:
         self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         self.DeleteOldFiles() 
         self.CheckPrivateOnly(update)
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))     
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user)) 
 
         files = self.Db.GetFileList(update.effective_user.id, 30)
         if len(files) > 0:
@@ -637,9 +637,10 @@ class LitGBot:
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
         logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))        
 
-        if update.effective_user.id in self.UserConversations:
+        if update.effective_user.id in self.UserConversations:            
             if update.effective_user.id != update.effective_chat.id:
                 return
+            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))     
             convers = self.UserConversations.pop(update.effective_user.id)
             if not (convers.SetTitleFor is None):
                 logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
@@ -669,7 +670,7 @@ class LitGBot:
 
                 comp = self.FindJoinableCompetition(convers.InputEntryTokenFor)
                 if comp.EntryToken != token:
-                    raise LitGBException("неправильный входной токен")
+                    raise LitGBException("неправильный входной токен: введено "+token+" должно быть "+comp.EntryToken)
                 
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
                 comp = await self.AfterJoinMember(comp, comp_stat, context)
@@ -900,7 +901,7 @@ class LitGBot:
     async def joinable_competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
-
+        
         comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
             await update.message.reply_text("нет конкурсов")
@@ -1049,7 +1050,7 @@ class LitGBot:
             if not (comp.EntryToken is None):
                 if len(comp.EntryToken) > 0:
                     if comp.EntryToken != token:
-                        raise LitGBException("неправильный входной токен")
+                        raise LitGBException("неправильный входной токен: введено ")
         comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
@@ -1157,7 +1158,7 @@ class LitGBot:
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
             if self.CheckCompetitionLeaveable(comp) is None:
-                if comp_stat.IsUserRegistered(comp_stat, user_id):   
+                if comp_stat.IsUserRegistered(user_id):   
                     if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
