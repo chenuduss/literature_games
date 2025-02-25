@@ -854,6 +854,9 @@ class LitGBot(ComepetitionWorker):
             list_type = "chatrelated"
 
         comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)        
+        if len(comp_list) > 0:
+            await update.message.reply_text("нет конкурсов")
+            return            
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
@@ -1511,7 +1514,7 @@ class LitGBot(ComepetitionWorker):
 
         if comp.IsClosedType():
             if len(comp_stat.SubmittedMembers) == 1:
-                await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0])
+                await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0], context)
 
         await self.ReportCompetitionStateToAttachedChat(comp, context)
         await self.ShowFileAuthors(comp, comp_stat, context)
