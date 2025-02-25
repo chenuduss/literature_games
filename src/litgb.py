@@ -1081,31 +1081,29 @@ class LitGBot(ComepetitionWorker):
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update is None:
-            logging.warning("Exception: ", exc_info=context.error)
-            return
+            logging.warning("Exception: "+ str(context.error))
         else:    
-            logging.warning("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)
+            logging.info("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)
 
-        
+        message_text = "impossible case (lol)"
         if isinstance(context.error, OnlyPrivateMessageAllowed):
-            await update.message.reply_text(str(context.error))
-            return
-
-        if isinstance(context.error, CommandRateLimitReached):
-            await update.message.reply_text(str(context.error))
-            return
-
-        if isinstance(context.error, LitGBException):           
-            await update.message.reply_text(self.MakeErrorMessage(context.error)) 
-            return  
-
-        if isinstance(context.error, BaseException):
-            logging.error("EXCEPTION: "+str(context.error,))
+            message_text = str(context.error)
+        elif isinstance(context.error, CommandRateLimitReached):
+            message_text = str(context.error)
+        elif isinstance(context.error, LitGBException): 
+            logging.warning("LitGBException: "+str(context.error))          
+            message_text = self.MakeErrorMessage(context.error)
+        else:
+            logging.error("EXCEPTION: "+str(context.error))
             tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
             tb_string = "".join(tb_list)
             logging.warning("Exception traceback:" + tb_string)            
-            await update.message.reply_text(self.MakeExternalErrorMessage(context.error))
-            return
+            message_text = self.MakeExternalErrorMessage(context.error)
+        
+        if update is None:
+            pass
+        else:    
+            await update.message.reply_text(message_text)
         
 
     def ParseCompetitionMenuQuery(self, query:str) -> tuple[str, str, int]:
