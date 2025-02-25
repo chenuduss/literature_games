@@ -153,9 +153,14 @@ class LitGBot(CompetitionService):
 
     @staticmethod
     def get_help() -> str:
-        result = "Команды: "
-        result += "\n/competition - карточка конкурса"
-        result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личке - список активных конкурсов"
+        result = "Команды:\n"
+        result += "\n/files - ваши файлы. Работает только в личных сообщениях"
+        result += "\n/create_open_competition - создание открытого конкурса (с самосудом). Работает только в личных сообщениях"
+        result += "\n/create_closed_competition <кол-во участников> - создание закрытого конкурса (дуэль или конкурс с жюри). При вызове в групповом чате, сразу привязывается к нему"
+        result += "\n/attach_competition <id> - привязывание конкурса к групповому чату"
+        result += "\n/competition <id> - карточка конкурса"        
+        result += "\n/current_competition - карточка конкурса текущего чата в стадии голосования"
+        result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личных сообщениях - список активных конкурсов"
         result += "\n/joinable_competitions - список конкурсов, к которым можно присоединиться"
         result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
         
@@ -171,10 +176,15 @@ class LitGBot(CompetitionService):
         status_msg +="\nАптайм "+ str(uptime)
         status_msg +="\nФайлы: "+str(self.Db.GetFileTotalCount())+ ". Суммарный размер: "+ MakeHumanReadableAmount(self.Db.GetFilesTotalSize())
         status_msg +="\nЛимит хранилища: " + MakeHumanReadableAmount(self.FileStorage.FileTotalSizeLimit)
-        status_msg += "\n\n"+ LitGBot.get_help()
+        status_msg += "\n\n"+ self.get_help()
 
         #status_msg +="\nВерсия "+ str(uptime)
         await update.message.reply_text(status_msg)
+
+    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        status_msg ="Это бот \"Литературные игры\""
+        status_msg += "\n\n"+ self.get_help()
+        await update.message.reply_text(self.get_help())        
 
     def DeleteFile(self, f:FileInfo):
         logging.warning("[FILESTORAGE] delete file #"+str(f.Id))
@@ -716,7 +726,11 @@ class LitGBot(CompetitionService):
         if not (chat_id is None):
             comp = await self.AfterCompetitionAttach(comp, context)
         await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
-          
+        
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text(
+            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))            
         
     async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -738,7 +752,11 @@ class LitGBot(CompetitionService):
             "тема не задана")
         logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))        
         await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
-       
+
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text(
+            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))       
         
     async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -790,7 +808,7 @@ class LitGBot(CompetitionService):
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition")    
 
         comp = self.FindCompetition(comp_id)
-        comp_info = self.GetCompetitionFullInfo(comp)                      
+        comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
@@ -1241,6 +1259,8 @@ if __name__ == '__main__':
 
     bot = LitGBot(db, file_str, conf['admin'])   
 
+    app.add_handler(CommandHandler("start", bot.help))
+    app.add_handler(CommandHandler("help", bot.help))
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
     app.add_handler(CommandHandler("files", bot.files))
