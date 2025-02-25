@@ -268,7 +268,7 @@ class LitGBot:
             file_title = None
             if not (update.message.caption is None):
                 if len(update.message.caption) > 0:
-                    file_title = update.message.caption.strip()
+                    file_title = update.message.caption.strip(" \t")
             if file_title is None:
                 file_title = "f_"+str(int(time.time()))    
                 
@@ -437,15 +437,22 @@ class LitGBot:
         return "#"+str(comp.Id)+" "+chat.Title
     
     @staticmethod
-    def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file_id:int) -> bool:
+    def CheckSimilarityOfTitles(t1:str, t2:str) -> bool:
+        return t1.lower() == t2.lower()
+    
+    @staticmethod
+    def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file:FileInfo) -> bool:
         if not comp.IsStarted():
             return False
         submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
         if len(submitted_files) >= comp.MaxFilesPerMember:
             return False
         
-        for f in submitted_files:
-            if f.Id == file_id:
+        stripped_title = file.Title.strip(" \t")
+        for f in submitted_files:            
+            if f.Id == file.Id:
+                return False
+            if LitGBot.CheckSimilarityOfTitles(f.Title, stripped_title):
                 return False
         
         return True
@@ -471,7 +478,7 @@ class LitGBot:
                 added_buttons = 0            
                 for comp in joined_competitions:
                     comp_stat = self.Db.GetCompetitionStat(comp.Id)
-                    if self.IsFileAcceptableFromUser(comp, comp_stat, user_id, file.Id):
+                    if self.IsFileAcceptableFromUser(comp, comp_stat, user_id, file):
                         if (file.TextSize >= comp.MinTextSize) and (file.TextSize <= comp.MaxTextSize):
                             chat = self.Db.FindChat(comp.ChatId)
                             button_caption = self.MakeUseFileInCompetitionButtonCaption(comp, chat)
@@ -555,7 +562,7 @@ class LitGBot:
                 if (f.TextSize < comp.MinTextSize) or (f.TextSize > comp.MaxTextSize):
                     raise LitGBException("file not acceptable for competition")
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
-                if not self.IsFileAcceptableFromUser(comp, comp_stat, update.effective_user.id, f.Id):
+                if not self.IsFileAcceptableFromUser(comp, comp_stat, update.effective_user.id, f):
                     raise LitGBException("file not acceptable for competition from this user")
                 
                 comp_stat = self.Db.UseFileInCompetition(comp.Id, update.effective_user.id, f.Id)            
@@ -638,7 +645,7 @@ class LitGBot:
                 logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
                 if len(update.message.text) > self.MaxFileNameSize:
                     raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
-                self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip())
+                self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip(" \t"))
                 await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
             elif not (convers.SetSubjectFor is None):
                 new_subj = update.message.text.strip()
@@ -1466,6 +1473,18 @@ class LitGBot:
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))        
 
+    async def ShowFileAuthors(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):        
+        message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
+        if comp.IsClosedType():
+            for user_id, files in comp_stat.SubmittedFiles.items():
+                user_title = comp_stat.SubmittedMembers[user_id].Title
+                for f in files:
+                    message_text +=  user_title + ": " + f.Title
+        else:    
+            message_text += "Вопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
+
+        await context.bot.send_message(comp.ChatId, message_text) 
+
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         comp = self.Db.FinishCompetition(comp.Id)
 
@@ -1474,6 +1493,8 @@ class LitGBot:
                 await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0])
 
         await self.ReportCompetitionStateToAttachedChat(comp, context)
+        await self.ShowFileAuthors(comp, comp_stat, context)
+
 
     async def ProcessLosedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserLosses(user.Id)
@@ -1508,7 +1529,14 @@ class LitGBot:
             await context.bot.send_document(chat_id, file_obj, filename=file_name)
         finally:
             if not (merged_fb2_filepath is None):
-                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)                              
+                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)   
+
+    async def AfterPollingStarted(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
+        await self.ReportCompetitionStateToAttachedChat(comp, context) 
+        
+        await self.SendSubmittedFiles(comp.ChatId, comp_stat, context)
+        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_stat, context) 
+
             
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if comp.Confirmed is None:
@@ -1527,11 +1555,7 @@ class LitGBot:
             await self.FinalizeSuccessCompetition(comp, comp_stat, context)
             return
         
-        await self.ReportCompetitionStateToAttachedChat(comp, context) 
-        
-        await self.SendSubmittedFiles(comp.ChatId, comp_stat, context)
-        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_stat, context) 
-
+        await self.AfterPollingStarted(comp, comp_stat, context)
 
             
     async def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
