@@ -1298,7 +1298,7 @@ if __name__ == '__main__':
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 
-    job_minute = app.job_queue.run_repeating(bot.competition_service_event, interval=150, first=5)
+    job_minute = app.job_queue.run_repeating(bot.competition_service_event, interval=100, first=5)
 
     app.add_error_handler(bot.error_handler)
 
