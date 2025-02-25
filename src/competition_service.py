@@ -138,8 +138,17 @@ class CompetitionService(ComepetitionWorker, FileService):
                     
                 for f in files:
                     message_text +=  user_title + ": " + f.Title
-        else:    
-            message_text += "Вопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
+        else:
+            for user_id, files in comp_stat.SubmittedFiles.items():
+                user_title = "!ОШИБКА!"
+                for u in comp_stat.SubmittedMembers:
+                    if u.Id == user_id:
+                        user_title = u.Title
+                        break
+                    
+                for f in files:
+                    message_text +=  user_title + ": " + f.Title            
+            message_text += "\n\nВопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
 
         await context.bot.send_message(comp.ChatId, message_text)                 
 
