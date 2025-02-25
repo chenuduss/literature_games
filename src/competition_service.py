@@ -12,6 +12,7 @@ class CompetitionService(ComepetitionWorker, FileService):
     def __init__(self, db:DbWorkerService, file_stor:FileStorage):
         ComepetitionWorker.__init__(self, db)
         FileService.__init__(self, file_stor)
+      
 
     async def ReportCompetitionStateToAttachedChat(self, 
             comp:CompetitionInfo, 
@@ -68,8 +69,45 @@ class CompetitionService(ComepetitionWorker, FileService):
             await context.bot.send_document(chat_id, file_obj, filename=file_name)
         finally:
             if not (merged_fb2_filepath is None):
-                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)                   
+                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)  
 
+    async def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
+
+        if comp.IsClosedType():
+            if comp.ChatId is None:
+                return
+        
+        comp = self.Db.StartCompetition(comp.Id)
+        await self.AfterStartCompetition(comp, context)                
+
+    async def CheckClosedCompetitionConfirmation(self, 
+            comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+         
+         if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)):
+            comp = self.Db.ConfirmCompetition(comp.Id)
+            await self.AfterConfirmCompetition(comp, context)
+            
+         return comp
+    
+    async def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
+        if comp.IsOpenType():
+            comp = self.Db.ConfirmCompetition(comp.Id)
+            await self.AfterConfirmCompetition(comp, context)
+            return comp
+        else:
+            stat = self.Db.GetCompetitionStat(comp.Id)
+            return await self.CheckClosedCompetitionConfirmation(comp, stat, context)      
+
+    async def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
+        if comp.IsClosedType():
+            return await self.CheckClosedCompetitionConfirmation(comp, comp_stat, context)
+        
+        return comp        
+
+    async def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
 
     async def AfterPollingStarted(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         await self.ReportCompetitionStateToAttachedChat(comp, context) 
@@ -172,4 +210,4 @@ class CompetitionService(ComepetitionWorker, FileService):
             
     async def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
         await self.CheckPollingStageStart(context)    
-        await self.CheckPollingStageEnd(context)          
+        await self.CheckPollingStageEnd(context)

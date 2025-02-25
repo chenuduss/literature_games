@@ -16,7 +16,7 @@ class FileService(FileWorker):
             fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
             SectionToFb2(f.FilePath, fb2_filepath, f.Title)
 
-            file_obj = open(fb2_filepath, "rb")
+            file_obj = open(fb2_filepath, "rb")            
             await context.bot.send_document(chat_id, file_obj, filename=fb2_name)
         finally:
             if not (fb2_filepath is None):

@@ -687,44 +687,6 @@ class LitGBot(CompetitionService):
                 return False
 
         return True
-    
-    async def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        await self.ReportCompetitionStateToAttachedChat(comp, context)
-    
-    async def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        await self.ReportCompetitionStateToAttachedChat(comp, context)
-
-        if comp.IsClosedType():
-            if comp.ChatId is None:
-                return
-        
-        comp = self.Db.StartCompetition(comp.Id)
-        await self.AfterStartCompetition(comp, context)
-    
-    async def CheckClosedCompetitionConfirmation(self, 
-            comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
-         
-         if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)):
-            comp = self.Db.ConfirmCompetition(comp.Id)
-            await self.AfterConfirmCompetition(comp, context)
-            
-         return comp
-    
-    async def AfterJoinMember(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
-        if comp.IsClosedType():
-            return await self.CheckClosedCompetitionConfirmation(comp, comp_stat, context)
-        
-        return comp
-    
-    async def AfterCompetitionAttach(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
-        await self.ReportCompetitionStateToAttachedChat(comp, context)
-        if comp.IsOpenType():
-            comp = self.Db.ConfirmCompetition(comp.Id)
-            await self.AfterConfirmCompetition(comp, context)
-            return comp
-        else:
-            stat = self.Db.GetCompetitionStat(comp.Id)
-            return await self.CheckClosedCompetitionConfirmation(comp, stat, context)        
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -900,41 +862,6 @@ class LitGBot(CompetitionService):
             raise LitGBException("Некорректный формат команды /join") 
 
 
-  
-
-    
-    def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindCompetitionBeforePollingStage(comp_id)
-        if not (comp.ChatId is None):
-            raise LitGBException("Конкурс уже привязан ")
-        if comp.IsStarted():
-            raise LitGBException("Конкурс уже стартовал, а значит его уже нельзя привязать ни к какому чату")
-        return comp
-    
-
-    @staticmethod
-    def IsCompetitionJoinable(comp:CompetitionInfo) -> str|None:
-        if comp.IsOpenType():        
-            if comp.Confirmed is None:
-                return "к конкурсу нельзя присоединиться"
-            if datetime.now(timezone.utc) >= comp.AcceptFilesDeadline:
-                return "прошёл дедлайн отправки работ"
-        else:            
-            if not (comp.Confirmed is None):
-                return "к конкурсу нельзя присоединиться"
-
-        return None   
-    
-      
-    def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindCompetitionBeforePollingStage(comp_id)
-
-        reason = self.IsCompetitionJoinable(comp)
-        if reason is None:
-            return comp
-            
-        raise LitGBException(reason)  
-
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)        
@@ -1044,7 +971,7 @@ class LitGBot(CompetitionService):
                 if self.IsCompetitionСancelable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
         
-            if self.IsCompetitionJoinable(comp) is None:
+            if self.CheckCompetitionJoinable(comp) is None:
                 if not comp_stat.IsUserRegistered(user_id):
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
@@ -1055,23 +982,7 @@ class LitGBot(CompetitionService):
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
         return InlineKeyboardMarkup(keyboard)
-       
-
-    def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
-        after = datetime.now(timezone.utc) - self.CompetitionsListDefaultPastInterval
-        before = datetime.now(timezone.utc) + self.CompetitionsListDefaultFutureInterval        
-
-        if list_type == "chatrelated":
-            return self.Db.SelectChatRelatedCompetitions(chat_id, after, before)
-        elif list_type == "allactiveattached":
-            return self.Db.SelectActiveAttachedCompetitions(after, before)
-        elif list_type == "my":
-            return self.Db.SelectUserRelatedCompetitions(user_id, after, before)        
-        elif list_type == "joinable":
-            return self.Db.SelectJoinableCompetitions(after, before)        
-        
-        
-        raise LitGBException("unknown competitions list type: "+list_type)    
+  
     
     def comp_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
         result = "#" + str(comp_info.Comp.Id)

@@ -41,6 +41,28 @@ class ComepetitionWorker:
         raise LitGBException("Конкурс в стадии голосования")
     
     @staticmethod
+    def CheckCompetitionJoinable(comp:CompetitionInfo) -> str|None:
+        if comp.IsOpenType():        
+            if comp.Confirmed is None:
+                return "к конкурсу нельзя присоединиться"
+            if datetime.now(timezone.utc) >= comp.AcceptFilesDeadline:
+                return "прошёл дедлайн отправки работ"
+        else:            
+            if not (comp.Confirmed is None):
+                return "к конкурсу нельзя присоединиться"
+
+        return None  
+
+    def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+
+        reason = self.CheckCompetitionJoinable(comp)
+        if reason is None:
+            return comp
+            
+        raise LitGBException(reason)         
+    
+    @staticmethod
     def CheckCompetitionPropertyChangable(comp: CompetitionInfo) -> str|None:
         if not (comp.Started is None):
             return "🚫 Конкурс стартовал, изменить его свойства уже нельзя"    
@@ -117,7 +139,15 @@ class ComepetitionWorker:
             if comp.Confirmed:
                 return "Закрытый конкурс нельзя отменить после подтверждения всех участников"
             
-        return None            
+        return None  
+
+    def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+        if not (comp.ChatId is None):
+            raise LitGBException("Конкурс уже привязан ")
+        if comp.IsStarted():
+            raise LitGBException("Конкурс уже стартовал, а значит его уже нельзя привязать ни к какому чату")
+        return comp              
 
     def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -129,4 +159,20 @@ class ComepetitionWorker:
 
     def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCancelableCompetition(comp_id)
-        return self.Db.FinishCompetition(comp.Id, True)            
+        return self.Db.FinishCompetition(comp.Id, True)
+    
+    def GetCompetitionList(self, list_type:str, user_id:int, chat_id:int) -> list[CompetitionInfo]:
+        after = datetime.now(timezone.utc) - self.CompetitionsListDefaultPastInterval
+        before = datetime.now(timezone.utc) + self.CompetitionsListDefaultFutureInterval        
+
+        if list_type == "chatrelated":
+            return self.Db.SelectChatRelatedCompetitions(chat_id, after, before)
+        elif list_type == "allactiveattached":
+            return self.Db.SelectActiveAttachedCompetitions(after, before)
+        elif list_type == "my":
+            return self.Db.SelectUserRelatedCompetitions(user_id, after, before)        
+        elif list_type == "joinable":
+            return self.Db.SelectJoinableCompetitions(after, before)        
+        
+        
+        raise LitGBException("unknown competitions list type: "+list_type)      
