@@ -648,7 +648,7 @@ class LitGBot(CompetitionService):
 
                 comp = self.FindJoinableCompetition(convers.InputEntryTokenFor)
                 if comp.EntryToken != token:
-                    raise LitGBException("неправильный входной токен: введено "+token+" должно быть "+comp.EntryToken)
+                    raise LitGBException("неправильный входной токен")
                 
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
                 comp = await self.AfterJoinMember(comp, comp_stat, context)
