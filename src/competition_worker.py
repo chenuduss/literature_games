@@ -101,3 +101,32 @@ class ComepetitionWorker:
         if not (comp.ChatId is None):
             chat = self.Db.FindChat(comp.ChatId)
         return CompetitionFullInfo(comp, stat, chat)            
+    
+    def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
+        if unreg:
+            self.Db.UnregUser(comp.Id, user_id)
+        else:    
+            self.Db.ReleaseUserFiles(comp.Id, user_id)
+
+    @staticmethod
+    def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
+        if comp.IsPollingStarted():
+            return "конкурс нельзя отменить в стадии голосования"
+        
+        if comp.IsClosedType():
+            if comp.Confirmed:
+                return "Закрытый конкурс нельзя отменить после подтверждения всех участников"
+            
+        return None            
+
+    def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+
+        reason = self.IsCompetitionСancelable(comp)
+        if reason is None:
+            return comp
+        raise LitGBException(reason)            
+
+    def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCancelableCompetition(comp_id)
+        return self.Db.FinishCompetition(comp.Id, True)            

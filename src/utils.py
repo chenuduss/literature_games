@@ -1,5 +1,6 @@
 import string
 import random
+from datetime import datetime
 
 def GetRandomString(length:int) -> str:    
     letters = string.ascii_lowercase+string.ascii_uppercase    
@@ -12,3 +13,6 @@ def MakeHumanReadableAmount(value:int) -> str:
         return str(round(float(value)/1000.0, 1))+"k" 
         
     return str(value)
+
+def DatetimeToString(v:datetime) -> str:
+    return v.strftime("%d.%m.%Y %H:%M %Z")

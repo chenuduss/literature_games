@@ -9,17 +9,14 @@ import os
 from datetime import timedelta, datetime, timezone
 from litgb_exception import LitGBException, FileNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
-from file_worker import FileStorage
+from file_storage import FileStorage
 from fb2_tool import FileToFb2Section, SectionToFb2, SectionsToFb2
-import string
-from utils import GetRandomString, MakeHumanReadableAmount
+from utils import GetRandomString, MakeHumanReadableAmount, DatetimeToString
 import re
 import traceback
 import pytz
 from competition_worker import ComepetitionWorker, CompetitionFullInfo
-
-def DatetimeToString(v:datetime) -> str:
-    return v.strftime("%d.%m.%Y %H:%M %Z")
+from competition_service import CompetitionService
 
 class CommandLimits:
     def __init__(self, global_min_inteval:float, chat_min_inteval:float):
@@ -54,9 +51,9 @@ class UserConversation:
         self.InputEntryTokenFor = None
         self.SetDeadlinesFor = None
 
-class LitGBot(ComepetitionWorker):
+class LitGBot(CompetitionService):
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict):
-        ComepetitionWorker.__init__(self, db_worker)
+        CompetitionService.__init__(self, db_worker, file_stor)
         self.StartTS = int(time.time())       
         
         self.CompetitionChangeLimits = CommandLimits(1, 3)
@@ -66,9 +63,8 @@ class LitGBot(ComepetitionWorker):
         self.FilesViewLimits = CommandLimits(1, 3)
         self.MyStatLimits = CommandLimits(0.7, 1.25)
         self.StatLimits = CommandLimits(1, 3)
-        self.CompetitionFilesLimits = CommandLimits(2, 5)
-        
-        self.FileStorage = file_stor  
+        self.CompetitionFilesLimits = CommandLimits(2, 5)       
+         
         self.MaxFileNameSize = 280
         self.UserConversations:dict[int, UserConversation] = {}
 
@@ -307,8 +303,7 @@ class LitGBot(ComepetitionWorker):
         self.FilesViewLimits.Check(update.effective_user.id, update.effective_chat.id)
 
         self.DeleteOldFiles()
-        self.CheckPrivateOnly(update) 
-
+        self.CheckPrivateOnly(update)
 
         files = self.Db.GetFileList(update.effective_user.id, 30)
         files.sort(key=lambda x: x.Loaded)
@@ -374,21 +369,8 @@ class LitGBot(ComepetitionWorker):
             raise FileNotFound(file_id)
         if (result.Owner != user_id) or (result.FilePath is None):
             raise FileNotFound(file_id)
-        return result
-    
-    async def SendFB2(self, f:FileInfo, chat_id:int, context: ContextTypes.DEFAULT_TYPE):
-        fb2_filepath = None
+        return result  
 
-        try:
-            fb2_name = f.Title+".fb2"
-            fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
-            SectionToFb2(f.FilePath, fb2_filepath, f.Title)
-
-            file_obj = open(fb2_filepath, "rb")
-            await context.bot.send_document(chat_id, file_obj, filename=fb2_name)
-        finally:
-            if not (fb2_filepath is None):
-                self.FileStorage.DeleteFileFullPath(fb2_filepath)
 
 
     async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
@@ -916,25 +898,10 @@ class LitGBot(ComepetitionWorker):
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
             raise LitGBException("Некорректный формат команды /join") 
-    
-    @staticmethod
-    def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
-        if comp.IsPollingStarted():
-            return "конкурс нельзя отменить в стадии голосования"
-        
-        if comp.IsClosedType():
-            if comp.Confirmed:
-                return "Закрытый конкурс нельзя отменить после подтверждения всех участников"
-            
-        return None
-    
-    def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindCompetitionBeforePollingStage(comp_id)
 
-        reason = self.IsCompetitionСancelable(comp)
-        if reason is None:
-            return comp
-        raise LitGBException(reason)
+
+  
+
     
     def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -1074,7 +1041,7 @@ class LitGBot(ComepetitionWorker):
                             keyboard.append(max_files_change_kbd)
 
 
-                if LitGBot.IsCompetitionСancelable(comp) is None:            
+                if self.IsCompetitionСancelable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
         
             if self.IsCompetitionJoinable(comp) is None:
@@ -1176,46 +1143,8 @@ class LitGBot(ComepetitionWorker):
         
 
         return result
-    
-    async def ReportCompetitionStateToAttachedChat(self, 
-            comp:CompetitionInfo, 
-            context: ContextTypes.DEFAULT_TYPE, 
-            message:str|None = None):
-        
-        if comp.ChatId is None:
-            return
-        
-        if not (comp.Finished is None):
-            if comp.Canceled:
-                message_text = "❌ Конкурс #"+str(comp.Id)+" отменён"
-                if not (message is None):
-                    message_text += "\n\n⁉️ Причина: "+ message                   
-                await context.bot.send_message(comp.ChatId, message_text)
-            else:    
-                await context.bot.send_message(comp.ChatId, "✅ Конкурс #"+str(comp.Id)+" завершён")
-
-            return
-        
-        if comp.IsPollingStarted():
-            await context.bot.send_message(comp.ChatId, "🔔 Конкурс #"+str(comp.Id)+" перешёл в стадию голосования. Дедлайн: "+DatetimeToString(comp.PollingDeadline))
-            return
-        
-        if comp.IsStarted():
-            await context.bot.send_message(comp.ChatId, "🔔Конкурс #"+str(comp.Id)+" стартовал. Дедлайн приёма файлов: "+DatetimeToString(comp.AcceptFilesDeadline))
-            return       
-        
-
-        if not (comp.Confirmed is None):
-            await context.bot.send_message(comp.ChatId, "✅ Конкурс #"+str(comp.Id)+" подтверждён")
-            return
-
-        await context.bot.send_message(comp.ChatId, "☑️ Конкурс #"+str(comp.Id)+" привязан к этому чату")
-    
-    def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindCancelableCompetition(comp_id)
-        return self.Db.FinishCompetition(comp.Id, True)
-        
-    
+ 
+     
     def ValidateTextLimits(self, comp:CompetitionInfo):
         if comp.MinTextSize >= comp.MaxTextSize:
             raise LitGBException("минимальное размер текста должен быть меньше, чем максимальный размер")
@@ -1241,13 +1170,7 @@ class LitGBot(ComepetitionWorker):
         if comp_index < 0:
             raise LitGBException("competition not found in competition list")
         return comp_index   
-
-    
-    def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
-        if unreg:
-            self.Db.UnregUser(comp.Id, user_id)
-        else:    
-            self.Db.ReleaseUserFiles(comp.Id, user_id)
+   
                 
     async def comp_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1377,138 +1300,7 @@ class LitGBot(ComepetitionWorker):
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
         
-
-        
-    async def CancelCompetitionWithError(self, comp: CompetitionInfo, error:str, context: ContextTypes.DEFAULT_TYPE):
-        self.Db.FinishCompetition(comp.Id, True)
-        await self.ReportCompetitionStateToAttachedChat(comp, context)        
-
-    async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
-        self.Db.IncreaseUserWins(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))        
-
-    async def ShowFileAuthors(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):        
-        message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
-        if comp.IsClosedType():
-            for user_id, files in comp_stat.SubmittedFiles.items():
-                user_title = comp_stat.SubmittedMembers[user_id].Title
-                for f in files:
-                    message_text +=  user_title + ": " + f.Title
-        else:    
-            message_text += "Вопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
-
-        await context.bot.send_message(comp.ChatId, message_text) 
-
-    async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        comp = self.Db.FinishCompetition(comp.Id)
-
-        if comp.IsClosedType():
-            if len(comp_stat.SubmittedMembers) == 1:
-                await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0], context)
-
-        await self.ReportCompetitionStateToAttachedChat(comp, context)
-        await self.ShowFileAuthors(comp, comp_stat, context)
-
-
-    async def ProcessLosedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
-        self.Db.IncreaseUserLosses(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" проиграл в конкурсе #"+str(comp.Id))
-
-    async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        comp_stat = self.Db.GetCompetitionStat(comp.Id)        
-        for user in comp_stat.RegisteredMembers:
-            user_files = comp_stat.SubmittedFiles.get(user.Id, [])
-            if len(user_files) == 0:
-                await self.ProcessLosedMember(comp, user, context)
-        
-
-    async def SendSubmittedFiles(self, chat_id:int, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        for files in comp_stat.SubmittedFiles.values():
-            for file in files:                
-                await self.SendFB2(file, chat_id, context)
-
-    async def SendMergedSubmittedFiles(self, chat_id:int, comp_id:str, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        section_filenames = []
-
-        for files in comp_stat.SubmittedFiles.values():
-            for file in files:                
-                section_filenames.append(file.FilePath)
-
-        merged_fb2_filepath = None
-        try:
-            file_name = "comp_"+str(comp_id)+"_all.fb2"
-            merged_fb2_filepath = self.FileStorage.GetFileFullPath(file_name)
-            SectionsToFb2(section_filenames, merged_fb2_filepath, "Конкурс #"+str(comp_id))
-            file_obj = open(merged_fb2_filepath, "rb")
-            await context.bot.send_document(chat_id, file_obj, filename=file_name)
-        finally:
-            if not (merged_fb2_filepath is None):
-                self.FileStorage.DeleteFileFullPath(merged_fb2_filepath)   
-
-    async def AfterPollingStarted(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        await self.ReportCompetitionStateToAttachedChat(comp, context) 
-        
-        await self.SendSubmittedFiles(comp.ChatId, comp_stat, context)
-        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_stat, context) 
-
-            
-    async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        if comp.Confirmed is None:
-            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"подтверждён\"")
-        if comp.Started is None:
-            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"стартовал\"")
-        if comp.IsPollingStarted():
-            LitGBException("Конкурса наступил дедлайн приёма файлов, но он уже перешёл в стадию \"голосование\"")
-
-        comp = self.Db.SwitchToPollingStage(comp.Id)        
-        if comp.IsClosedType():
-            await self.ProcessFailedMembers(comp, context)
-
-        comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
-        if self.CheckCompetitionEndCondition(comp, comp_stat):
-            await self.FinalizeSuccessCompetition(comp, comp_stat, context)
-            return
-        
-        await self.AfterPollingStarted(comp, comp_stat, context)
-
-            
-    async def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
-        logging.info("CheckPollingStageStart:")
-        comp_list = self.Db.SelectReadyToPollingStageCompetitions()
-        for comp in comp_list:
-            try:
-                await self.SwitchToPollingStage(comp, context)
-            except LitGBException as ex:
-                logging.error("CheckPollingStageStart: ERROR on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))
-                logging.error("CheckPollingStageStart: cancel competition #"+str(comp.Id)+ " due error on switch to polling stage")
-                await self.CancelCompetitionWithError(comp, str(ex), context)
-            except BaseException as ex:
-                logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
-
-    async def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        if not comp.IsPollingStarted():
-            LitGBException("У конкурса наступил дедлайн голосования, но он не перешёл в стадию \"голосование\"")
-
-        comp_stat = self.Db.GetCompetitionStat(comp.Id)
-        await self.FinalizeSuccessCompetition(comp, comp_stat, context)     
-
-    async def CheckPollingStageEnd(self, context: ContextTypes.DEFAULT_TYPE):
-        logging.info("CheckPollingStageEnd:")
-        comp_list = self.Db.SelectPollingDeadlinedCompetitions()
-        for comp in comp_list:
-            try:
-                await self.FinalizeCompetitionPolling(comp, context)
-            except LitGBException as ex:
-                logging.error("CheckPollingStageEnd: ERROR on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))
-                logging.error("CheckPollingStageEnd: cancel competition #"+str(comp.Id)+ " due error on finalize polling stage")
-                await self.CancelCompetitionWithError(comp, str(ex), context)
-            except BaseException as ex:
-                logging.error("CheckPollingStageEnd: EXCEPTION on FinalizeCompetitionPolling competition #"+str(comp.Id)+ ": "+str(ex))          
-            
-    async def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
-        await self.CheckPollingStageStart(context)    
-        await self.CheckPollingStageEnd(context)  
-            
+             
     async def competition_service_event(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("competition_service_event:")
         await self.CheckCompetitionStates(context)

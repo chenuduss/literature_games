@@ -1,25 +1,7 @@
-import os
-import random
-from datetime import timedelta
+from file_storage import FileStorage
 
-class FileStorage:
-    def __init__(self, conf:dict):
-        self.Directory = conf['directory']
-        self.MaxFileSize = int(conf.get('max_file_size', 1024*256))
-        self.FileTotalSizeLimit = int(conf.get('files_total_size_limit', 1024*1024*256)) 
-        self.RetentionPeriod = timedelta(days=int(conf.get('retention_days', 10))) 
 
-    @staticmethod
-    def MakeUniqueFileName(name:str) -> str:
-        return str(random.randint(100, 2000000))+"_"+name
-
-    def GetFileFullPath(self, name:str) -> str:
-
-        return os.path.join(self.Directory, self.MakeUniqueFileName(name))
-
-    def DeleteFileFullPath(self, file_path:str):
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
-    def GetFileSize(self, file_path:str) -> int:
-        return os.path.getsize(file_path)
+class FileWorker:
+    def __init__(self, file_stor:FileStorage):
+        self.FileStorage = file_stor 
+        
