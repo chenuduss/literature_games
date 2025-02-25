@@ -112,9 +112,18 @@ def SaveSection(dest_filename:str, text:str):
 
 def TxtToFb2Section(source_filename:str, dest_filename:str, title:str)  -> int:
     ps = []
-    with open(source_filename, "r") as file:
-        for line in file:
-            ps.append(line)
+    not_unicode = False
+    try:
+        with open(source_filename, "r", encoding="utf-8") as file:
+            for line in file:
+                ps.append(line)
+    except UnicodeDecodeError:
+        not_unicode = True
+
+    if not_unicode:
+        with open(source_filename, "r", encoding="cp1251") as file:
+            for line in file:
+                ps.append(line)
     
     section_text, text_size = MakeSection(ps, title)
     SaveSection(dest_filename, section_text)
