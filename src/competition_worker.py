@@ -1,6 +1,6 @@
 from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, ChatInfo
 from litgb_exception import LitGBException, CompetitionNotFound
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 class CompetitionFullInfo:
     def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None = None, chat:ChatInfo|None = None): 
@@ -11,6 +11,8 @@ class CompetitionFullInfo:
 class ComepetitionWorker:
     def __init__(self, db:DbWorkerService):
         self.Db = db
+        self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
+        self.CompetitionsListDefaultPastInterval = timedelta(days=3)        
                  
     def FindCompetition(self, comp_id:int) -> CompetitionInfo:     
         comp = self.Db.FindCompetition(comp_id)
@@ -42,6 +44,11 @@ class ComepetitionWorker:
     
     @staticmethod
     def CheckCompetitionJoinable(comp:CompetitionInfo) -> str|None:
+        if not (comp.Finished is None):
+            return "конкурс завершён"
+        if comp.IsPollingStarted():
+            return "конкурс в стадии голосования"
+
         if comp.IsOpenType():        
             if comp.Confirmed is None:
                 return "к конкурсу нельзя присоединиться"

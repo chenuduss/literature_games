@@ -77,8 +77,7 @@ class LitGBot(CompetitionService):
 
         self.DefaultMinTextSize = 15000
         self.DefaultMaxTextSize = 40000
-        self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
-        self.CompetitionsListDefaultPastInterval = timedelta(days=3)
+
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)        
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
@@ -596,7 +595,7 @@ class LitGBot(CompetitionService):
             files.sort(key=lambda x: x.Loaded)                
             await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files, update.effective_user.id))   
         else:
-            await update.message.reply_text(self.file_menu_message(None), reply_markup=self.file_menu_keyboard(0, [], update.effective_user.id))   
+            await update.message.reply_text("У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
    
     def ParseDeadlines(self, v:str, tz:timezone) -> tuple[datetime, datetime]:
         deadlines = v.strip().split("/", 1)
