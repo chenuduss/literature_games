@@ -130,7 +130,12 @@ class CompetitionService(ComepetitionWorker, FileService):
         message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
         if comp.IsClosedType():
             for user_id, files in comp_stat.SubmittedFiles.items():
-                user_title = comp_stat.SubmittedMembers[user_id].Title
+                user_title = "!ОШИБКА!"
+                for u in comp_stat.SubmittedMembers:
+                    if u.Id == user_id:
+                        user_title = u.Title
+                        break
+                    
                 for f in files:
                     message_text +=  user_title + ": " + f.Title
         else:    
@@ -188,9 +193,13 @@ class CompetitionService(ComepetitionWorker, FileService):
             except BaseException as ex:
                 logging.error("CheckPollingStageStart: EXCEPTION on CheckPollingStageStart competition #"+str(comp.Id)+ ": "+str(ex))       
 
-    async def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def FinalizeCompetitionPolling(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):              
         if not comp.IsPollingStarted():
             LitGBException("У конкурса наступил дедлайн голосования, но он не перешёл в стадию \"голосование\"")
+        if comp.Confirmed is None:
+            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"подтверждён\"")
+        if not comp.IsStarted():
+            LitGBException("У конкурса наступил дедлайн приёма файлов, но он не перешёл в стадию \"стартовал\"")            
 
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
         await self.FinalizeSuccessCompetition(comp, comp_stat, context)     
