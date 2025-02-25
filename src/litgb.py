@@ -1187,29 +1187,29 @@ class LitGBot(ComepetitionWorker):
         
         if not (comp.Finished is None):
             if comp.Canceled:
-                message_text = "Конкурс #"+str(comp.Id)+" отменён"
+                message_text = "❌ Конкурс #"+str(comp.Id)+" отменён"
                 if not (message is None):
-                    message_text += "\n\nПричина: "+ message                   
+                    message_text += "\n\n⁉️ Причина: "+ message                   
                 await context.bot.send_message(comp.ChatId, message_text)
             else:    
-                await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" завершён")
+                await context.bot.send_message(comp.ChatId, "✅ Конкурс #"+str(comp.Id)+" завершён")
 
             return
         
         if comp.IsPollingStarted():
-            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" перешёл в стадию голосования. Дедлайн: "+DatetimeToString(comp.PollingDeadline))
+            await context.bot.send_message(comp.ChatId, "🔔 Конкурс #"+str(comp.Id)+" перешёл в стадию голосования. Дедлайн: "+DatetimeToString(comp.PollingDeadline))
             return
         
         if comp.IsStarted():
-            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" стартовал. Дедлайн приёма файлов: "+DatetimeToString(comp.AcceptFilesDeadline))
+            await context.bot.send_message(comp.ChatId, "🔔Конкурс #"+str(comp.Id)+" стартовал. Дедлайн приёма файлов: "+DatetimeToString(comp.AcceptFilesDeadline))
             return       
         
 
         if not (comp.Confirmed is None):
-            await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" подтверждён")
+            await context.bot.send_message(comp.ChatId, "✅ Конкурс #"+str(comp.Id)+" подтверждён")
             return
 
-        await context.bot.send_message(comp.ChatId, "Конкурс #"+str(comp.Id)+" привязан к этому чату")
+        await context.bot.send_message(comp.ChatId, "☑️ Конкурс #"+str(comp.Id)+" привязан к этому чату")
     
     def CancelCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCancelableCompetition(comp_id)
