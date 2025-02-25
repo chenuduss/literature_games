@@ -83,6 +83,7 @@ class LitGBot:
         self.FilesViewLimits = CommandLimits(1, 3)
         self.MyStatLimits = CommandLimits(0.7, 1.25)
         self.StatLimits = CommandLimits(1, 3)
+        self.CompetitionFilesLimits = CommandLimits(2, 5)
         
         self.FileStorage = file_stor  
         self.MaxFileNameSize = 280
@@ -146,7 +147,11 @@ class LitGBot:
         logging.info("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
         self.MyStatLimits.Check(update.effective_user.id, update.effective_chat.id)
 
-        stat_message = "в разработке"        
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))        
+        user_info = self.Db.FindUser(update.effective_user.id)
+        stat_message = "Статистика пользователя "+user_info.Title
+        stat_message += "\nПобед: "+str(user_info.Wins)
+        stat_message += "\nПоражений: "+str(user_info.Losses)
 
         await update.message.reply_text(stat_message)
     
@@ -472,7 +477,7 @@ class LitGBot:
         if not file.Locked:
             keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
             keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
-            
+
             joined_competitions = self.Db.SelectUserRegisteredCompetitions(user_id, datetime.now(timezone.utc), datetime.now(timezone.utc)+timedelta(days=40))
             if len(joined_competitions) > 0:    
                 added_buttons = 0            
@@ -866,6 +871,19 @@ class LitGBot:
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
         
+    async def competition_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.info("[COMPFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionFilesLimits.Check(update.effective_user.id, update.effective_chat.id)      
+
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_files")  
+        comp = self.FindCompetitionInPollingState(comp_id)
+        if update.effective_chat.id != comp.ChatId:
+            raise LitGBException("Команду можно выполнить только в чате, к которому привязан конкурс")
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await self.SendSubmittedFiles(comp.ChatId, comp_info.Stat, context)
+        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
+
+        
     async def current_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CURRENT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
@@ -943,6 +961,12 @@ class LitGBot:
             return comp        
         
         raise LitGBException("Конкурс в стадии голосования")
+    
+    def FindCompetitionInPollingState(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindNotFinishedCompetition(comp_id)
+        if not comp.IsPollingStarted():
+            raise LitGBException("Конкурс не перешёл в стадию голосования")
+        return comp
     
     @staticmethod
     def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
@@ -1596,8 +1620,8 @@ class LitGBot:
         await self.CheckPollingStageStart(context)    
         await self.CheckPollingStageEnd(context)  
             
-    async def event_five_minutes(self, context: ContextTypes.DEFAULT_TYPE):
-        logging.info("event_five_minutes:")
+    async def competition_service_event(self, context: ContextTypes.DEFAULT_TYPE):
+        logging.info("competition_service_event:")
         await self.CheckCompetitionStates(context)
 
 
@@ -1637,6 +1661,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("attach_competition", bot.attach_competition))
     app.add_handler(CommandHandler("competitions", bot.competitions))  
     app.add_handler(CommandHandler("competition", bot.competition))  
+    app.add_handler(CommandHandler("competition_files", bot.competition_files))  
     app.add_handler(CommandHandler("current_competition", bot.current_competition))  
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
     app.add_handler(CommandHandler("join", bot.join_to_competition))
@@ -1653,7 +1678,7 @@ if __name__ == '__main__':
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
 
-    job_minute = app.job_queue.run_repeating(bot.event_five_minutes, interval=60*5, first=5)
+    job_minute = app.job_queue.run_repeating(bot.competition_service_event, interval=150, first=5)
 
     app.add_error_handler(bot.error_handler)
 

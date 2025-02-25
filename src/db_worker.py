@@ -37,7 +37,15 @@ class UserInfo:
         return not self.__eq__(other) 
     
     def __hash__(self):
-        return hash(self.Id)    
+        return hash(self.Id)   
+
+class UserFullInfo(UserInfo):
+    def __init__(self, id:int, title:str, losses:int, wins:int, half_wins:int, file_limit:int):
+        UserInfo.__init__(self, id, title)  
+        self.Losses = losses
+        self.Wins = wins
+        self.HalfWins = half_wins
+        self.FileLimit = file_limit
 
 class ChatInfo:
     def __init__(self, id:int, title:str):
@@ -699,4 +707,15 @@ class DbWorkerService:
         if len(rows) > 0: 
             return self.MakeCompetitionInfoFromRow(rows[0])
 
-        return None  
+        return None
+    
+    @ConnectionPool
+    def FindUser(self, user_id:int, connection=None) -> UserFullInfo:
+        ps_cursor = connection.cursor()
+        ps_cursor.execute("SELECT title, losses, wins, half_wins, file_limit FROM sd_user WHERE id = %s", (user_id, ))
+        rows = ps_cursor.fetchall()
+
+        if len(rows) > 0: 
+            return UserFullInfo(user_id, rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4])
+
+        return None        
