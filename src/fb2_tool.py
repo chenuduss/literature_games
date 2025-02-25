@@ -1,6 +1,7 @@
 import docx
 import sys
 import re
+import os
 from datetime import datetime
 
 from litgb_exception import UnknownFileFormatException, LitGBException
@@ -144,10 +145,8 @@ def FileToFb2Section(source_filename:str, dest_filename:str, title:str) -> int:
     
     raise UnknownFileFormatException(None)
 
-
 def main():
-    DocToFb2(sys.argv[1], sys.argv[2], sys.argv[1])
-    
+    pass    
 
 if __name__ == '__main__':    
     main()
