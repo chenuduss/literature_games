@@ -1,5 +1,5 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
 from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, UserInfo
 import logging
@@ -7,32 +7,19 @@ import json
 import time
 import os
 from datetime import timedelta, datetime, timezone
-from litgb_exception import LitGBException, FileNotFound, CompetitionNotFound, OnlyPrivateMessageAllowed
+from litgb_exception import LitGBException, FileNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_worker import FileStorage
 from fb2_tool import FileToFb2Section, SectionToFb2, SectionsToFb2
 import string
-import random
+from utils import GetRandomString, MakeHumanReadableAmount
 import re
 import traceback
 import pytz
-
-from competition_worker import ComepetitionWorker
-    
-def GetRandomString(length:int) -> str:    
-    letters = string.ascii_lowercase+string.ascii_uppercase    
-    return ''.join(random.choice(letters) for i in range(length))
+from competition_worker import ComepetitionWorker, CompetitionFullInfo
 
 def DatetimeToString(v:datetime) -> str:
     return v.strftime("%d.%m.%Y %H:%M %Z")
-
-def MakeHumanReadableAmount(value:int) -> str:     
-    if value > 1000000:
-        return str(round(float(value)/1000000.0, 2))+"M"
-    if value > 1000:
-        return str(round(float(value)/1000.0, 1))+"k" 
-        
-    return str(value)
 
 class CommandLimits:
     def __init__(self, global_min_inteval:float, chat_min_inteval:float):
@@ -66,12 +53,6 @@ class UserConversation:
         self.SetSubjectExtFor = None
         self.InputEntryTokenFor = None
         self.SetDeadlinesFor = None
-
-class CompetitionFullInfo:
-    def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None = None, chat:ChatInfo|None = None): 
-        self.Comp = comp
-        self.Stat = stat
-        self.Chat = chat
 
 class LitGBot(ComepetitionWorker):
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict):
@@ -109,7 +90,6 @@ class LitGBot(ComepetitionWorker):
 
         self.Admins = set(admin["user_ids"])
         self.Timezone = pytz.timezone("Europe/Moscow")
-        
 
 
     @staticmethod
@@ -143,7 +123,6 @@ class LitGBot(ComepetitionWorker):
     @staticmethod
     def MakeExternalErrorMessage(ex: BaseException) -> str:
         return "❗️ Ошибка при выполнении команды: "+str(ex)
-          
 
     async def mystat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info("[MYSTAT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat))    
@@ -423,7 +402,6 @@ class LitGBot(ComepetitionWorker):
         file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
 
         await self.SendFB2(file, update.effective_chat.id, context)
-           
 
 
     @staticmethod
@@ -462,8 +440,7 @@ class LitGBot(ComepetitionWorker):
             if LitGBot.CheckSimilarityOfTitles(f.Title, stripped_title):
                 return False
         
-        return True
-            
+        return True            
 
     def file_menu_keyboard(self, file_index:int, files:list[FileInfo], user_id:int):
         if len(files) == 0:
@@ -730,7 +707,6 @@ class LitGBot(ComepetitionWorker):
         return True
     
     async def AfterStartCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-
         await self.ReportCompetitionStateToAttachedChat(comp, context)
     
     async def AfterConfirmCompetition(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
@@ -843,7 +819,6 @@ class LitGBot(ComepetitionWorker):
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
                     
-
         
     async def competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -941,31 +916,6 @@ class LitGBot(ComepetitionWorker):
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
             raise LitGBException("Некорректный формат команды /join") 
-
-
-    def FindNotFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindCompetition(comp_id)
-        if comp.Finished is None:
-            return comp
-        
-        raise LitGBException("Конкурс уже завершён")    
-
-
-    
-    def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindNotFinishedCompetition(comp_id)
-        if datetime.now(timezone.utc) >= comp.AcceptFilesDeadline:
-            raise LitGBException("дедлайн приёма файлов уже прошёл")    
-        if not comp.IsPollingStarted():
-            return comp        
-        
-        raise LitGBException("Конкурс в стадии голосования")
-    
-    def FindCompetitionInPollingState(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindNotFinishedCompetition(comp_id)
-        if not comp.IsPollingStarted():
-            raise LitGBException("Конкурс не перешёл в стадию голосования")
-        return comp
     
     @staticmethod
     def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:
@@ -976,9 +926,7 @@ class LitGBot(ComepetitionWorker):
             if comp.Confirmed:
                 return "Закрытый конкурс нельзя отменить после подтверждения всех участников"
             
-            
         return None
-            
     
     def FindCancelableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -986,28 +934,6 @@ class LitGBot(ComepetitionWorker):
         reason = self.IsCompetitionСancelable(comp)
         if reason is None:
             return comp
-        raise LitGBException(reason)
-    
-    @staticmethod
-    def IsCompetitionPropertyChangable(comp: CompetitionInfo) -> str|None:
-        if not (comp.Started is None):
-            return "Конкурс стартовал, изменить его свойства уже нельзя"
-        
-    @staticmethod
-    def EnsureCompetitionCreator(comp: CompetitionInfo, user_id:int) -> str|None:
-        if comp.CreatedBy != user_id:
-            raise LitGBException("изменение свойств конкурса разрешено только его создателю")
-    
-    def FindPropertyChangableCompetition(self, comp_id:int, check_creator:int|None) -> CompetitionInfo:
-        comp = self.FindCompetitionBeforePollingStage(comp_id)
-
-        if not (check_creator is None):
-            self.EnsureCompetitionCreator(comp, check_creator)
-
-        reason = self.IsCompetitionPropertyChangable(comp)
-        if reason is None:
-            return comp
-        
         raise LitGBException(reason)
     
     def FindNotAttachedCompetition(self, comp_id:int) -> CompetitionInfo:
@@ -1030,18 +956,8 @@ class LitGBot(ComepetitionWorker):
             if not (comp.Confirmed is None):
                 return "к конкурсу нельзя присоединиться"
 
-        return None
+        return None   
     
-    @staticmethod
-    def CheckCompetitionLeaveable(comp:CompetitionInfo) -> str|None:
-        if not (comp.PollingStarted is None):
-            return "нельзя выйти из конкурса на стадии голосования"
-
-        if comp.IsClosedType():  
-            if not (comp.Started is None):
-                return "из закрытого конкурса нельзя выйти в после того, как он стартовал" 
-
-        return None       
       
     def FindJoinableCompetition(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -1050,17 +966,7 @@ class LitGBot(ComepetitionWorker):
         if reason is None:
             return comp
             
-        raise LitGBException(reason)
-    
-    def FindFileAcceptableCompetition(self, id:int) -> CompetitionInfo:
-        comp = self.FindCompetitionBeforePollingStage(id)
-        if comp.Started is None:
-            raise LitGBException("конкурс ещё не стартовал, приём файлов возможен только в стартовавший конкурс")
-        return comp   
-    
-    def FindLeavableCompetition(self, id:int) -> CompetitionInfo:
-        raise NotImplementedError("FindLeavableCompetition")
-
+        raise LitGBException(reason)  
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1112,9 +1018,6 @@ class LitGBot(ComepetitionWorker):
             return (m.group(1), m.group(2), int(m.group(3)))
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
-        
-
-
     
     def comp_menu_keyboard(self, 
             list_type:str, 
@@ -1137,7 +1040,7 @@ class LitGBot(ComepetitionWorker):
         comp = comp_list[comp_index]
         if user_id == chat_id:
             if user_id == comp.CreatedBy :
-                if LitGBot.IsCompetitionPropertyChangable(comp) is None:            
+                if self.CheckCompetitionPropertyChangable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
                     keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
                     keyboard.append([InlineKeyboardButton('Установить дедлайны', callback_data='comp_'+list_type+'_setdeadlines_'+str(comp.Id))])
@@ -1178,7 +1081,7 @@ class LitGBot(ComepetitionWorker):
                 if not comp_stat.IsUserRegistered(user_id):
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
-            if self.CheckCompetitionLeaveable(comp) is None:
+            if ComepetitionWorker.CheckCompetitionLeaveable(comp) is None:
                 if comp_stat.IsUserRegistered(user_id):   
                     if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
@@ -1214,9 +1117,9 @@ class LitGBot(ComepetitionWorker):
         if comp_info.Comp.IsClosedType():
             result +="дуэль/жюри"
         else:
-            result +="самосуд"    
+            result +="🔫 самосуд"    
 
-        result +="\nСоздан: " + DatetimeToString(comp_info.Comp.Created)
+        result +="\n\nСоздан: " + DatetimeToString(comp_info.Comp.Created)
         if not (comp_info.Comp.Confirmed is None):
             result +="\nПодтверждён: " + DatetimeToString(comp_info.Comp.Confirmed)
         if not (comp_info.Comp.Started is None):
@@ -1229,47 +1132,47 @@ class LitGBot(ComepetitionWorker):
 
         if not (comp_info.Chat is None):
             result +="\nКонфа: " + comp_info.Chat.Title
-        result +="\nТема: " + comp_info.Comp.Subject
+        result +="\n\n🏷 Тема: " + comp_info.Comp.Subject
         if not (comp_info.Comp.SubjectExt is None):
-            result +="\nПояснение:\n\n" + comp_info.Comp.SubjectExt
+            result +="\n📃 Пояснение:\n\n" + comp_info.Comp.SubjectExt
         result +="\nДедлайн приёма работ: " + DatetimeToString(comp_info.Comp.AcceptFilesDeadline)
         result +="\nДедлайн голосования: " + DatetimeToString(comp_info.Comp.PollingDeadline)
         result +="\nМинимальный размер текста: " + str(comp_info.Comp.MinTextSize)
         result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)        
         result +="\nМаксимум работ с одного участника: " + str(comp_info.Comp.MaxFilesPerMember)
         if comp_info.Comp.CreatedBy == chat_id:
-            result +="\nВходной токен: " + comp_info.Comp.EntryToken
+            result +="\n🔐 Входной токен: " + comp_info.Comp.EntryToken
 
         if user_id == chat_id:
             if comp_info.Stat.IsUserRegistered(user_id):
-                result +="\nВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
+                result +="\n\n‼️ ВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
 
                 user_files = comp_info.Stat.SubmittedFiles.get(user_id, [])
                 if len(user_files) > 0:
-                    result +="\nВаши файлы на этом конкурсе:"
+                    result +="\n✅ Ваши файлы на этом конкурсе:"
                     i = 0
                     for f in user_files:
                         i += 1
-                        result +="\n"+str(i)+". ("+str(MakeHumanReadableAmount(f.TextSize))+") "+f.Title
+                        result +="\n✔️ "+str(i)+". ("+str(MakeHumanReadableAmount(f.TextSize))+") "+f.Title
                 else:
-                    result +="\nВы ещё не прикрепляли файлы к конкурсу"
+                    result +="\n🔘 Вы ещё не прикрепляли файлы к конкурсу"
 
         
-        result +="\nЗарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
+        result +="\n\n🧮 Зарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
 
         if comp_info.Comp.IsClosedType() and (len(comp_info.Stat.RegisteredMembers) > 0):
-            result +="\nСписок участников:"
+            result +="\n📋 Список участников:"
             i = 0
             for m in comp_info.Stat.RegisteredMembers:
                 i += 1
-                result +="\n"+str(i)+": "+m.Title
+                result +="\n🔹 "+str(i)+": "+m.Title
         else:
-            result +="\nКол-во участников приславших рассказы: " + str(len(comp_info.Stat.SubmittedMembers))    
-            result +="\nКол-во присланных рассказов: " + str(comp_info.Stat.SubmittedFileCount)  
+            result +="\n📈 Кол-во участников приславших рассказы: " + str(len(comp_info.Stat.SubmittedMembers))    
+            result +="\n📚 Кол-во присланных рассказов: " + str(comp_info.Stat.SubmittedFileCount)  
 
 
         if comp_info.Comp.IsOpenType() or comp_info.Comp.IsPollingStarted():
-            result +="\nСуммарно присланный текст: " + MakeHumanReadableAmount(comp_info.Stat.TotalSubmittedTextSize)
+            result +="\n🖨 Суммарно присланный текст: " + MakeHumanReadableAmount(comp_info.Stat.TotalSubmittedTextSize)
         
 
         return result
@@ -1337,14 +1240,8 @@ class LitGBot(ComepetitionWorker):
 
         if comp_index < 0:
             raise LitGBException("competition not found in competition list")
-        return comp_index
-    
-    def GetCompetitionFullInfo(self, comp:CompetitionInfo) -> CompetitionFullInfo:
-        stat = self.Db.GetCompetitionStat(comp.Id)
-        chat = None
-        if not (comp.ChatId is None):
-            chat = self.Db.FindChat(comp.ChatId)
-        return CompetitionFullInfo(comp, stat, chat)
+        return comp_index   
+
     
     def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
         if unreg:
@@ -1479,13 +1376,8 @@ class LitGBot(ComepetitionWorker):
             logging.error("[comp_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([]))        
-          
-    @staticmethod      
-    def CheckCompetitionEndCondition(comp:CompetitionInfo, stat:CompetitionStat) -> bool:
-        if comp.IsClosedType():
-            return len(stat.SubmittedMembers) < 2
-        else:
-            return len(stat.SubmittedMembers) < 3
+        
+
         
     async def CancelCompetitionWithError(self, comp: CompetitionInfo, error:str, context: ContextTypes.DEFAULT_TYPE):
         self.Db.FinishCompetition(comp.Id, True)
