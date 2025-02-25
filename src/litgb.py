@@ -154,6 +154,8 @@ class LitGBot(CompetitionService):
     @staticmethod
     def get_help() -> str:
         result = "Команды:\n"
+        
+        result += "\n/my_stat - моя статистика"
         result += "\n/files - ваши файлы. Работает только в личных сообщениях"
         result += "\n/create_open_competition - создание открытого конкурса (с самосудом). Работает только в личных сообщениях"
         result += "\n/create_closed_competition <кол-во участников> - создание закрытого конкурса (дуэль или конкурс с жюри). При вызове в групповом чате, сразу привязывается к нему"
@@ -1271,7 +1273,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("filelist", bot.filelist))
     app.add_handler(CommandHandler("files", bot.files))
     app.add_handler(CommandHandler("getfb2", bot.getfb2))
-    app.add_handler(CommandHandler("mystat", bot.mystat))
+    app.add_handler(CommandHandler("my_stat", bot.mystat))
     app.add_handler(CommandHandler("stat", bot.stat))
     app.add_handler(CommandHandler("top", bot.top))
     app.add_handler(CommandHandler("create_closed_competition", bot.create_closed_competition))
