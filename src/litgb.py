@@ -791,9 +791,9 @@ class LitGBot(CompetitionService):
             list_type = "chatrelated"
 
         comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)        
-        if len(comp_list) > 0:
+        if len(comp_list) == 0:
             await update.message.reply_text("нет конкурсов")
-            return            
+            return  
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
