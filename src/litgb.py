@@ -10,8 +10,8 @@ from datetime import timedelta, datetime, timezone
 from litgb_exception import LitGBException, FileNotFound, OnlyPrivateMessageAllowed
 from zoneinfo import ZoneInfo
 from file_storage import FileStorage
-from fb2_tool import FileToFb2Section, SectionToFb2, SectionsToFb2
-from utils import GetRandomString, MakeHumanReadableAmount, DatetimeToString
+from fb2_tool import FileToFb2Section
+from utils import GetRandomString, MakeHumanReadableAmount, DatetimeToString, TimedeltaToString
 import re
 import traceback
 import pytz
@@ -1024,15 +1024,21 @@ class LitGBot(CompetitionService):
             result +="\nГолосование начато: " + DatetimeToString(comp_info.Comp.PollingStarted)
         if not (comp_info.Comp.Finished is None):
             result +="\nЗавершён: " + DatetimeToString(comp_info.Comp.Finished)            
-
+        
 
         if not (comp_info.Chat is None):
             result +="\nКонфа: " + comp_info.Chat.Title
         result +="\n\n🏷 Тема: " + comp_info.Comp.Subject
         if not (comp_info.Comp.SubjectExt is None):
             result +="\n📃 Пояснение:\n\n" + comp_info.Comp.SubjectExt
-        result +="\nДедлайн приёма работ: " + DatetimeToString(comp_info.Comp.AcceptFilesDeadline)
-        result +="\nДедлайн голосования: " + DatetimeToString(comp_info.Comp.PollingDeadline)
+        result +="\n🕟 Дедлайн приёма работ: " + DatetimeToString(comp_info.Comp.AcceptFilesDeadline)
+        result +="\n🕓 Дедлайн голосования: " + DatetimeToString(comp_info.Comp.PollingDeadline)
+        now = datetime.now(timezone.utc)
+        if now < comp_info.Comp.AcceptFilesDeadline:
+            result +="\n⏳ До окончания приёма работ: " + TimedeltaToString(comp_info.Comp.AcceptFilesDeadline - now)
+            result +="\n⏱️ Время на голосование: " + TimedeltaToString(comp_info.Comp.PollingDeadline - comp_info.Comp.AcceptFilesDeadline)
+        elif now < comp_info.Comp.PollingDeadline:  
+            result +="\n⏳ До окончания голосования: " + TimedeltaToString(comp_info.Comp.PollingDeadline - now)
         result +="\nМинимальный размер текста: " + str(comp_info.Comp.MinTextSize)
         result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)        
         result +="\nМаксимум работ с одного участника: " + str(comp_info.Comp.MaxFilesPerMember)

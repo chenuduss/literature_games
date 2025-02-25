@@ -1,6 +1,6 @@
 import string
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def GetRandomString(length:int) -> str:    
     letters = string.ascii_lowercase+string.ascii_uppercase    
@@ -16,3 +16,17 @@ def MakeHumanReadableAmount(value:int) -> str:
 
 def DatetimeToString(v:datetime) -> str:
     return v.strftime("%d.%m.%Y %H:%M %Z")
+
+def TimedeltaToString(v:timedelta):
+    result = ""
+    if v.days > 0:
+        result += str(v.days) + " дней"
+
+    hours = int(v.seconds/3600) 
+    minutes =  int((v.seconds - hours*3600)/60)
+    if hours > 0:
+        result += " " + str(hours) + " часов"         
+    if minutes > 0:
+        result += " " + str(minutes) + " минут"        
+
+    return result
