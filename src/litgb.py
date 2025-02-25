@@ -16,6 +16,8 @@ import random
 import re
 import traceback
 import pytz
+
+from competition_worker import ComepetitionWorker
     
 def GetRandomString(length:int) -> str:    
     letters = string.ascii_lowercase+string.ascii_uppercase    
@@ -71,9 +73,9 @@ class CompetitionFullInfo:
         self.Stat = stat
         self.Chat = chat
 
-class LitGBot:
+class LitGBot(ComepetitionWorker):
     def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict):
-        self.Db = db_worker
+        ComepetitionWorker.__init__(self, db_worker)
         self.StartTS = int(time.time())       
         
         self.CompetitionChangeLimits = CommandLimits(1, 3)
@@ -936,12 +938,6 @@ class LitGBot:
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
             raise LitGBException("Некорректный формат команды /join") 
-
-    def FindCompetition(self, comp_id:int) -> CompetitionInfo:     
-        comp = self.Db.FindCompetition(comp_id)
-        if comp is None:
-            raise CompetitionNotFound(comp_id)
-        return comp
 
 
     def FindNotFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
