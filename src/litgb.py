@@ -558,7 +558,7 @@ class LitGBot(CompetitionService):
                 uconv.SetTitleFor = f.Id
                 self.UserConversations[update.effective_user.id] = uconv
                 await query.edit_message_text(
-                    text="Введите новое название файла", reply_markup=InlineKeyboardMarkup([]))                
+                    text="✏️ Введите новое название файла", reply_markup=InlineKeyboardMarkup([]))                
             elif params[0] == "fb2":
                 file_id = int(params[1])
                 f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
@@ -576,7 +576,7 @@ class LitGBot(CompetitionService):
                 
                 comp_stat = self.Db.UseFileInCompetition(comp.Id, update.effective_user.id, f.Id)            
                 await query.edit_message_text(
-                    text="Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))            
+                    text="✅ Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))            
             else:
                 raise LitGBException("unknown menu action: "+params[0])
         except LitGBException as ex:
@@ -637,7 +637,7 @@ class LitGBot(CompetitionService):
             files.sort(key=lambda x: x.Loaded)                
             await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files, update.effective_user.id))   
         else:
-            await update.message.reply_text("У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
+            await update.message.reply_text("✖️ У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
    
     def ParseDeadlines(self, v:str, tz:timezone) -> tuple[datetime, datetime]:
         deadlines = v.strip().split("/", 1)
@@ -676,7 +676,7 @@ class LitGBot(CompetitionService):
                     raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectLength)+" символов")
                 comp = self.FindPropertyChangableCompetition(convers.SetSubjectFor, update.effective_user.id)
                 self.Db.SetCompetitionSubject(comp.Id, new_subj)
-                await update.message.reply_text("Новая тема для конкурса #"+str(comp.Id)+" установлена: "+new_subj)
+                await update.message.reply_text("✅ Новая тема для конкурса #"+str(comp.Id)+" установлена: "+new_subj)
             elif not (convers.SetSubjectExtFor is None):
                 new_subjext = update.message.text.strip()
                 logging.info("[COMP_SETSUBJEXT] new subject for competition #"+str(convers.SetSubjectExtFor)+": "+new_subjext) 
@@ -686,7 +686,7 @@ class LitGBot(CompetitionService):
                     raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectExtLength)+" символов")                
                 comp = self.FindPropertyChangableCompetition(convers.SetSubjectExtFor, update.effective_user.id)
                 self.Db.SetCompetitionSubjectExt(comp.Id, new_subjext)
-                await update.message.reply_text("Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n"+new_subjext)                
+                await update.message.reply_text("✅ Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n"+new_subjext)                
             elif  not (convers.InputEntryTokenFor is None):    
                 token = update.message.text.strip()
                 logging.info("[INPUT_TOKEN] input entry token for competition #"+str(convers.SetSubjectFor)+": "+token) 
@@ -697,7 +697,7 @@ class LitGBot(CompetitionService):
                 
                 comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
                 comp = await self.AfterJoinMember(comp, comp_stat, context)
-                await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
+                await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
             elif  not (convers.SetDeadlinesFor is None):
                 new_deadlines = update.message.text.strip()
                 logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+new_deadlines) 
@@ -708,7 +708,7 @@ class LitGBot(CompetitionService):
                         raise LitGBException("новые дедлайны пересекаются с дедлайнами других конкурсов")
                     
                 comp = self.Db.SetDeadlines(comp.Id, accept_files_deadline, polling_deadline)
-                await update.message.reply_text("Дедлайны для конкурса #"+str(comp.Id)+" установлены: "+DatetimeToString(comp.AcceptFilesDeadline)+" / "+DatetimeToString(comp.PollingDeadline))
+                await update.message.reply_text("✅ Дедлайны для конкурса #"+str(comp.Id)+" установлены: "+DatetimeToString(comp.AcceptFilesDeadline)+" / "+DatetimeToString(comp.PollingDeadline))
     
     def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
         return datetime.now(timezone.utc)+self.DefaultAcceptDeadlineTimedelta
@@ -772,7 +772,7 @@ class LitGBot(CompetitionService):
         logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
         if not (chat_id is None):
             comp = await self.AfterCompetitionAttach(comp, context)
-        await update.message.reply_text("Создан новый закрытый конкурс #"+str(comp.Id)) 
+        await update.message.reply_text("✔️ Создан новый закрытый конкурс #"+str(comp.Id)) 
         
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
@@ -799,7 +799,7 @@ class LitGBot(CompetitionService):
             None,
             "тема не задана")
         logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))        
-        await update.message.reply_text("Создан новый открытый конкурс #"+str(comp.Id)) 
+        await update.message.reply_text("✔️ Создан новый открытый конкурс #"+str(comp.Id)) 
 
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text(
@@ -841,7 +841,7 @@ class LitGBot(CompetitionService):
 
         comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
-            await update.message.reply_text("нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов")
             return  
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
@@ -884,7 +884,7 @@ class LitGBot(CompetitionService):
 
         comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
         if comp is None:
-            await update.message.reply_text("нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов")
             return
         comp_info = self.GetCompetitionFullInfo(comp)                      
         await update.message.reply_text(
@@ -899,7 +899,7 @@ class LitGBot(CompetitionService):
 
         comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
-            await update.message.reply_text("нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов")
             return
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
@@ -913,7 +913,7 @@ class LitGBot(CompetitionService):
         
         comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)        
         if len(comp_list) == 0:
-            await update.message.reply_text("нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов")
             return
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
@@ -943,7 +943,7 @@ class LitGBot(CompetitionService):
                         raise LitGBException("неправильный входной токен: введено ")
         comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
-        await update.message.reply_text("Заявлено участие в конкурсе #"+str(comp.Id))
+        await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
 
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1250,7 +1250,7 @@ class LitGBot(CompetitionService):
                     uconv.InputEntryTokenFor = comp.Id
                     self.UserConversations[update.effective_user.id] = uconv
                     await query.edit_message_text(
-                        text="Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
+                        text="🔓 Введите токен для входа в конкурс", reply_markup=InlineKeyboardMarkup([]))  
             elif action == "leave":
                 comp = self.FindLeavableCompetition(comp_id)
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
