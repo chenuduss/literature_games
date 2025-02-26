@@ -21,5 +21,6 @@
         "minimum_polling_stage_min": 150,
         "minimum_text_size": 10000,
         "maximum_text_size": 40000
-    }
+    },
+    "log_level": "ERROR"
 }

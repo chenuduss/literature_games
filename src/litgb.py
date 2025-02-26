@@ -1292,21 +1292,17 @@ class LitGBot(CompetitionService):
         await self.CheckCompetitionStates(context)
 
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+if __name__ == '__main__':    
 
     parser = argparse.ArgumentParser(
         prog = 'LitGBot', description = '''Literature games bot''', epilog = '''(c) 2025''')   
-
-
     parser.add_argument ('--conf', dest='conf', action="store", type=str, required=True)
+    args = parser.parse_args()    
 
-    args = parser.parse_args()
-
-    
     with open(args.conf, 'r') as file:
         conf = json.load(file)
-
+     
+    logging.basicConfig(level=conf.get('log_level', 'WARNING'), format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
        
     file_str = FileStorage(conf['file_storage'])
 
