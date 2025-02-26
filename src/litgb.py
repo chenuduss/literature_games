@@ -593,7 +593,7 @@ class LitGBot(CompetitionService):
             return
         if not (update.effective_user.id in self.Admins):
             return        
-        limit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_allusers_filelimit", 0) 
+        limit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_allusers_filelimit", 0, 30) 
         affected_users = self.Db.SetAllUsersFileLimit(limit)
         await update.message.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
 
@@ -603,7 +603,7 @@ class LitGBot(CompetitionService):
             return
         if not (update.effective_user.id in self.Admins):
             return        
-        self.Db.DefaultNewUsersFileLimit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_newusers_file_limit", 0) 
+        self.Db.DefaultNewUsersFileLimit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_newusers_file_limit", 0, 30) 
         await update.message.reply_text("Лимит файлов для всех новых пользователей установлен в значение "+str(self.Db.DefaultNewUsersFileLimit))
         
 
