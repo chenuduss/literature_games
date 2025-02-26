@@ -597,6 +597,16 @@ class LitGBot(CompetitionService):
         affected_users = self.Db.SetAllUsersFileLimit(limit)
         await update.message.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
 
+    async def set_newusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        if update.effective_user.id != update.effective_chat.id:
+            return
+        if not (update.effective_user.id in self.Admins):
+            return        
+        self.Db.DefaultNewUsersFileLimit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_newusers_file_limit", 0) 
+        await update.message.reply_text("Лимит файлов для всех новых пользователей установлен в значение "+str(self.Db.DefaultNewUsersFileLimit))
+        
+
     async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))             
         if update.effective_user.id != update.effective_chat.id:
@@ -1315,6 +1325,7 @@ if __name__ == '__main__':
     #ADMINS
     app.add_handler(CommandHandler("set_filelimit", bot.set_file_limit))    
     app.add_handler(CommandHandler("set_allusers_filelimit", bot.set_allusers_file_limit))   
+    app.add_handler(CommandHandler("set_newusers_filelimit", bot.set_newusers_file_limit))  
     app.add_handler(CommandHandler("kill", bot.kill_competition))
 
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))

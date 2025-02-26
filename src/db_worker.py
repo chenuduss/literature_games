@@ -153,7 +153,8 @@ class DbWorkerService:
             password = config["password"],
             host = config["host"],
             port = config["port"],
-            database = config["db"])       
+            database = config["db"])  
+        self.DefaultNewUsersFileLimit = 0     
 
         
     @ConnectionPool    
@@ -162,7 +163,7 @@ class DbWorkerService:
         ps_cursor.execute("SELECT id FROM sd_user WHERE id = %s", (user_id, ))        
         rows = ps_cursor.fetchall()
         if len(rows) < 1:            
-            ps_cursor.execute("INSERT INTO sd_user (id, title) VALUES (%s, %s)", (user_id, title)) 
+            ps_cursor.execute("INSERT INTO sd_user (id, title, file_limit) VALUES (%s, %s, %s)", (user_id, title, self.DefaultNewUsersFileLimit)) 
             connection.commit()
 
     @ConnectionPool    
