@@ -27,4 +27,3 @@
     python3 src/litgb.py --conf test/conf.json
 
 
-
