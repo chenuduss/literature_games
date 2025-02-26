@@ -71,9 +71,9 @@ class LitGBot(CompetitionService):
         self.JoinToCompetitionCommandRegex = re.compile("/join\\s+(\\d+)\\s+(\\S+)")
         self.CompetitionMenuQueryRegex = re.compile("comp_(\\S+)_(\\S+)_(\\d+)")
 
-        self.DefaultAcceptDeadlineTimedelta = timedelta(hours=4)
-        self.DefaultPollingStageTimedelta = timedelta(hours=48)
-        self.MinimumPollingStageInterval = timedelta(minutes=60)
+        self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=15)
+        self.DefaultPollingStageTimedelta = timedelta(minutes=15)
+        self.MinimumPollingStageInterval = timedelta(minutes=15)
 
         self.DefaultMinTextSize = 15000
         self.DefaultMaxTextSize = 40000
@@ -1279,7 +1279,7 @@ class LitGBot(CompetitionService):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s.%(msecs)03d %(levelname)s %(module)s - %(funcName)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
     parser = argparse.ArgumentParser(
         prog = 'LitGBot', description = '''Literature games bot''', epilog = '''(c) 2025''')   
