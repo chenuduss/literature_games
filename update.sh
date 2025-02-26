@@ -1,6 +1,6 @@
 #!/bin/sh
 
-CURRENT_DIR = $(cwd)
+CURRENT_DIR = $(PWD)
 systemctl stop litgb.service
-runuser litgb -c 'sh $CURRENT_DIR/update_repo.sh'
+runuser litgb -c 'bash $CURRENT_DIR/update_repo.sh'
 systemctl start litgb.service
