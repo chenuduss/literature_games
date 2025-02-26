@@ -284,7 +284,7 @@ class LitGBot(CompetitionService):
                 if len(update.message.caption) > 0:
                     file_title = update.message.caption.strip(" \t")
             if file_title is None:
-                file_title = "f_"+str(int(time.time()))    
+                file_title = "f_"+GetRandomString(14) 
                 
             if len(file_title) > self.MaxFileNameSize:
                 raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
@@ -1086,7 +1086,7 @@ class LitGBot(CompetitionService):
                     result +="\n🔘 Вы ещё не прикрепляли файлы к конкурсу"
 
         
-        result +="\n\n🧮 Зарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
+        result +="\n\n📉 Зарегистрированных участников : " + str(len(comp_info.Stat.RegisteredMembers))        
 
         if comp_info.Comp.IsClosedType() and (len(comp_info.Stat.RegisteredMembers) > 0):
             result +="\n📋 Список участников:"
