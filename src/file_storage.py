@@ -5,6 +5,8 @@ from datetime import timedelta
 class FileStorage:
     def __init__(self, conf:dict):
         self.Directory = conf['directory']
+        if not os.path.isdir(self.Directory):
+            raise RuntimeError("dir not exists: "+self.Directory)
         self.MaxFileSize = int(conf.get('max_file_size', 1024*256))
         self.FileTotalSizeLimit = int(conf.get('files_total_size_limit', 1024*1024*256)) 
         self.RetentionPeriod = timedelta(days=int(conf.get('retention_days', 10))) 
