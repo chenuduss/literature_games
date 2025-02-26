@@ -166,6 +166,27 @@ class LitGBot(CompetitionService):
         result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
         
         return result
+    
+    async def SendHelpAfterCreateCompetition(self, comp:CompetitionInfo, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
+        help_msg = "ℹ️ "
+        if comp.IsClosedType():
+            help_msg += "Вы создали конкурс закрытого типа. Это означает, что список его участников ограничен и он начнётся только подтверждения заявленного количество участников. "
+            help_msg += "У данного конкурса заявленное количество участников равно "+str(comp.DeclaredMemberCount)+"."                        
+            help_msg += "\n\n⚠️После того, как конкурс стартует, изменить его свойства уже нельзя. Поэтому перед тем, как раздавать участникам входные токены или привязывать конкурс к чату, задайте всего его параметры.\n"
+        else:
+            help_msg += "Вы создали конкурс открытого типа. Это означает, что список его участников неограничен и заранее неизвестен. Он стартует сразу после привязки его в групповому чату."
+            help_msg += "\n\n⚠️После того, как конкурс стартует, изменить его свойства уже нельзя. Поэтому перед тем, как привязывать конкурс к чату, задайте всего его параметры.\n"    
+
+        if comp.CreatedBy == update.effective_chat.id:
+            help_msg += "\n🔐 Быстрая команда для подтверждения участия в конкурсе:\n<pre>/join "+str(comp.Id)+" "+comp.EntryToken+"</pre>"
+        
+
+        if comp.ChatId is None:    
+            help_msg += "\n\n❗️ Конкурс может стартовать только после привязки его к групповому чату. "
+            help_msg += "\nЧтобы привязать конкурс к групповом чату, введите следующую команду в целевом групповом чате:\n<pre>/attach_competition "+str(comp.Id)+"</pre>"
+
+        await update.message.reply_html(help_msg)
 
     async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ut = LitGBot.GetUserTitleForLog(update.effective_user)
@@ -732,6 +753,7 @@ class LitGBot(CompetitionService):
         await update.message.reply_text(
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))            
+        await self.SendHelpAfterCreateCompetition(comp, update, context)
         
     async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -758,6 +780,7 @@ class LitGBot(CompetitionService):
         await update.message.reply_text(
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))       
+        await self.SendHelpAfterCreateCompetition(comp, update, context)
         
     async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1029,6 +1052,8 @@ class LitGBot(CompetitionService):
 
         if not (comp_info.Chat is None):
             result +="\nКонфа: " + comp_info.Chat.Title
+        else:
+            result +="⚠️ Конкурс будет запущен только после привязки в групповому чату"
         result +="\n\n🏷 Тема: " + comp_info.Comp.Subject
         if not (comp_info.Comp.SubjectExt is None):
             result +="\n📃 Пояснение:\n\n" + comp_info.Comp.SubjectExt
