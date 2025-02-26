@@ -2,6 +2,6 @@
 
 systemctl stop litgb.service
 
-runuser -l  litgb -c 'git pull'
+runuser litgb -p -c 'git pull'
 
 systemctl start litgb.service
