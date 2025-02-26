@@ -14,5 +14,12 @@
     },
     "admin": {
         "user_ids":[1, 2, 3]
+    },
+    "competition_defaults": {
+        "default_accept_deadline_min": 300,
+        "default_polling_stage_h": 50,
+        "minimum_polling_stage_min": 150,
+        "minimum_text_size": 10000,
+        "maximum_text_size": 40000
     }
 }

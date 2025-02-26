@@ -52,7 +52,7 @@ class UserConversation:
         self.SetDeadlinesFor = None
 
 class LitGBot(CompetitionService):
-    def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict):
+    def __init__(self, db_worker:DbWorkerService, file_stor:FileStorage, admin:dict, defaults:dict):
         CompetitionService.__init__(self, db_worker, file_stor)
         self.StartTS = int(time.time())       
         
@@ -66,22 +66,32 @@ class LitGBot(CompetitionService):
         self.CompetitionFilesLimits = CommandLimits(2, 5)       
          
         self.MaxFileNameSize = 280
+        self.MaxSubjectLength = 1024
+        self.MaxSubjectExtLength = 2048
         self.UserConversations:dict[int, UserConversation] = {}
 
         self.JoinToCompetitionCommandRegex = re.compile("/join\\s+(\\d+)\\s+(\\S+)")
         self.CompetitionMenuQueryRegex = re.compile("comp_(\\S+)_(\\S+)_(\\d+)")
 
-        self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=15)
-        self.DefaultPollingStageTimedelta = timedelta(minutes=15)
-        self.MinimumPollingStageInterval = timedelta(minutes=15)
+        self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=defaults.get('default_accept_deadline_min', 60*4))
+        if 'default_polling_stage_min' in defaults:
+            self.DefaultPollingStageTimedelta = timedelta(minutes=defaults['default_polling_stage_min'])
+        else:
+            self.DefaultPollingStageTimedelta = timedelta(hours=defaults.get('default_polling_stage_h', 48))
+        self.MinimumPollingStageInterval = timedelta(minutes=defaults.get('minimum_polling_stage_min', 60*2))
 
-        self.DefaultMinTextSize = 15000
-        self.DefaultMaxTextSize = 40000
+        self.DefaultMinTextSize = defaults.get('minimum_text_size', 12000)
+        self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)        
 
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)        
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
+
+        if self.DefaultMaxTextSize < self.MinTextSize:
+            raise LitGBException("invalid minimum_text_size default value: "+str(self.DefaultMinTextSize))
+        if self.DefaultMaxTextSize > self.MaxTextSize:
+            raise LitGBException("invalid maximum_text_size default value: "+str(self.DefaultMaxTextSize))
 
         self.Admins = set(admin["user_ids"])
         self.Timezone = pytz.timezone("Europe/Moscow")
@@ -662,6 +672,8 @@ class LitGBot(CompetitionService):
                 logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+new_subj) 
                 if len(new_subj) < 3:
                     raise LitGBException("Тема не может быть меньше трёх символов")
+                if len(new_subj) > self.MaxSubjectLength:
+                    raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectLength)+" символов")
                 comp = self.FindPropertyChangableCompetition(convers.SetSubjectFor, update.effective_user.id)
                 self.Db.SetCompetitionSubject(comp.Id, new_subj)
                 await update.message.reply_text("Новая тема для конкурса #"+str(comp.Id)+" установлена: "+new_subj)
@@ -670,6 +682,8 @@ class LitGBot(CompetitionService):
                 logging.info("[COMP_SETSUBJEXT] new subject for competition #"+str(convers.SetSubjectExtFor)+": "+new_subjext) 
                 if len(new_subjext) < 3:
                     raise LitGBException("Пояснение не может быть меньше трёх символов")
+                if len(new_subj) > self.MaxSubjectExtLength:
+                    raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectExtLength)+" символов")                
                 comp = self.FindPropertyChangableCompetition(convers.SetSubjectExtFor, update.effective_user.id)
                 self.Db.SetCompetitionSubjectExt(comp.Id, new_subjext)
                 await update.message.reply_text("Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n"+new_subjext)                
@@ -1300,7 +1314,7 @@ if __name__ == '__main__':
 
     app = ApplicationBuilder().token(conf['bot_token']).build()
 
-    bot = LitGBot(db, file_str, conf['admin'])   
+    bot = LitGBot(db, file_str, conf['admin'], conf.get('competition_defaults', {}))   
 
     app.add_handler(CommandHandler("start", bot.help))
     app.add_handler(CommandHandler("help", bot.help))
