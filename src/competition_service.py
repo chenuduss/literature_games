@@ -127,8 +127,16 @@ class CompetitionService(ComepetitionWorker, FileService):
                 await self.ProcessLosedMember(comp, user, context)        
 
     async def ShowFileAuthors(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):        
-        message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
+
         if comp.IsClosedType():
+            if len(comp_stat.SubmittedMembers) < 2:
+                return
+        else:
+            if len(comp_stat.SubmittedMembers) < 3:
+                return
+
+        message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
+        if comp.IsClosedType():            
             for user_id, files in comp_stat.SubmittedFiles.items():
                 user_title = "!ОШИБКА!"
                 for u in comp_stat.SubmittedMembers:
@@ -139,6 +147,7 @@ class CompetitionService(ComepetitionWorker, FileService):
                 for f in files:
                     message_text +=  user_title + ": " + f.Title
         else:
+            
             for user_id, files in comp_stat.SubmittedFiles.items():
                 user_title = "!ОШИБКА!"
                 for u in comp_stat.SubmittedMembers:
@@ -154,17 +163,18 @@ class CompetitionService(ComepetitionWorker, FileService):
 
     async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserWins(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))           
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         comp = self.Db.FinishCompetition(comp.Id)
+        await self.ReportCompetitionStateToAttachedChat(comp, context)
 
         if comp.IsClosedType():
             if len(comp_stat.SubmittedMembers) == 1:
                 await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0], context)
 
-        await self.ReportCompetitionStateToAttachedChat(comp, context)
-        await self.ShowFileAuthors(comp, comp_stat, context)
+        await self.ShowFileAuthors(comp, comp_stat, context)        
+        
 
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if comp.Confirmed is None:
@@ -179,7 +189,9 @@ class CompetitionService(ComepetitionWorker, FileService):
             await self.ProcessFailedMembers(comp, context)
 
         comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
-        if self.CheckCompetitionEndCondition(comp, comp_stat):
+        if self.CheckCompetitionEndCondition(comp, comp_stat):            
+            if comp.IsOpenType():
+                await context.bot.send_message(comp.ChatId, "В конкурсе #"+str(comp.Id)+" слишком мало участников. Голосование лишено смысла")            
             await self.FinalizeSuccessCompetition(comp, comp_stat, context)
             return
         
