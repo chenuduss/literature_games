@@ -1,0 +1,16 @@
+[Unit]
+Description="LitGB service"
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=ysdb
+Group=ysdb
+WorkingDirectory=/home/litgb/literature_games/src
+VIRTUAL_ENV=/home/litgb/python_env
+Environment=PATH=$VIRTUAL_ENV/bin:$PATH
+ExecStart=/home/litgb/python_env/bin/python3 litgb.py --conf /home/litgb/litgb.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
