@@ -16,7 +16,7 @@
 
 Обновление:
 
-    python3 dbtool.py --host 127.0.0.1 --db litgb_db2 --user postgres --password **** --action update    
+    python3 dbtool.py --host 127.0.0.1 --db litgb_db2 --user postgres --password **** --action update --all_access_for <user>
 
 
 ## Запуск
