@@ -25,7 +25,14 @@ class ComepetitionWorker:
         if comp.Finished is None:
             return comp
         
-        raise LitGBException("🛑 Конкурс уже завершён")                    
+        raise LitGBException("🛑 Конкурс уже завершён")     
+
+    def FindFinishedCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindCompetition(comp_id)
+        if comp.Finished is None:
+            raise LitGBException("🛑 Конкурс ещё не завершён") 
+        
+        return comp
     
     def FindCompetitionInPollingState(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindNotFinishedCompetition(comp_id)

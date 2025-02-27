@@ -58,6 +58,7 @@ class LitGBot(CompetitionService):
         
         self.CompetitionChangeLimits = CommandLimits(1, 3)
         self.CompetitionViewLimits = CommandLimits(0.7, 3)
+        self.CompetitionPollViewLimits = CommandLimits(2, 4)
         self.CreateCompetitionLimits = CommandLimits(10, 30)
         self.UploadFilesLimits = CommandLimits(3, 10)
         self.FilesViewLimits = CommandLimits(1, 3)
@@ -170,8 +171,11 @@ class LitGBot(CompetitionService):
         result += "\n/create_open_competition - создание открытого конкурса (с самосудом). Работает только в личных сообщениях"
         result += "\n/create_closed_competition <кол-во участников> - создание закрытого конкурса (дуэль или конкурс с жюри). При вызове в групповом чате, сразу привязывается к нему"
         result += "\n/attach_competition <id> - привязывание конкурса к групповому чату"
-        result += "\n/competition <id> - карточка конкурса"        
+        result += "\n/competition <id> - карточка конкурса"
+        result += "\n/competition_polling <id> - карточка голосования конкурса"
         result += "\n/current_competition - карточка конкурса текущего чата в стадии голосования"
+        result += "\n/current_polling - состояние голосования конкурса текущего чата в стадии голосования"
+        result += "\n/results <id> - результаты конкурса"
         result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личных сообщениях - список активных конкурсов"
         result += "\n/joinable_competitions - список конкурсов, к которым можно присоединиться"
         result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
@@ -862,6 +866,26 @@ class LitGBot(CompetitionService):
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
         
+    async def competition_polling(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
+        logging.info("[COMPPOLL] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_polling")    
+
+        comp = self.FindCompetitionInPollingState(comp_id)
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text(
+            self.comp_poll_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_poll_menu_keyboard(comp_info, update.effective_user.id, update.effective_chat.id))        
+        
+    async def results(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
+        logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/results")  
+        comp = self.FindFinishedCompetition(comp_id)
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text("В разработке")
+        
     async def competition_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info("[COMPFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionFilesLimits.Check(update.effective_user.id, update.effective_chat.id)      
@@ -890,6 +914,21 @@ class LitGBot(CompetitionService):
         await update.message.reply_text(
             self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
+
+    async def current_polling(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
+        logging.info("[CURPOLL] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionPollViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        if update.effective_user.id == update.effective_chat.id:
+            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+            return
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
+        if comp is None:
+            await update.message.reply_text("✖️ Нет конкурсов")
+            return
+        comp_info = self.GetCompetitionFullInfo(comp) 
+        await update.message.reply_text(
+            self.comp_poll_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
+            reply_markup=self.comp_poll_menu_keyboard(comp_info, update.effective_user.id, update.effective_chat.id))        
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -979,6 +1018,10 @@ class LitGBot(CompetitionService):
             return (m.group(1), m.group(2), int(m.group(3)))
         except BaseException as ex:
             raise LitGBException("invalid comp menu query")  
+
+    def comp_poll_menu_keyboard(self, comp_info:CompetitionFullInfo, user_id:str, chat_id:int):
+        keyboard = []
+        return InlineKeyboardMarkup(keyboard)
     
     def comp_menu_keyboard(self, 
             list_type:str, 
@@ -1050,6 +1093,8 @@ class LitGBot(CompetitionService):
 
         return InlineKeyboardMarkup(keyboard)
   
+    def comp_poll_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
+        return "В разработке"
     
     def comp_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
         result = "#" + str(comp_info.Comp.Id)
@@ -1326,11 +1371,15 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("attach_competition", bot.attach_competition))
     app.add_handler(CommandHandler("competitions", bot.competitions))  
     app.add_handler(CommandHandler("competition", bot.competition))  
+    app.add_handler(CommandHandler("competition_polling", bot.competition_polling)) 
     app.add_handler(CommandHandler("competition_files", bot.competition_files))  
     app.add_handler(CommandHandler("current_competition", bot.current_competition))  
+    app.add_handler(CommandHandler("current_polling", bot.current_polling)) 
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
+    app.add_handler(CommandHandler("results", bot.results))
+    
 
     #ADMINS
     app.add_handler(CommandHandler("set_filelimit", bot.set_file_limit))    
