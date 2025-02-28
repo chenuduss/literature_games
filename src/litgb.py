@@ -1352,7 +1352,7 @@ class LitGBot(CompetitionService):
         if handler is None:
             raise LitGBException("unknowm polling type (handler not found)")
            
-        handler.MenuHandler(update, context, comp_id, custom_type_data)
+        await handler.MenuHandler(update, context, comp_id, custom_type_data)
         
 
 if __name__ == '__main__':    

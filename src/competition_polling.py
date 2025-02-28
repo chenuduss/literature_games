@@ -25,5 +25,5 @@ class ICompetitionPolling:
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo):
         raise NotImplementedError("ICompetitionPolling.PollingMessageHandler")
 
-    def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
+    async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
         raise NotImplementedError("ICompetitionPolling.MenuHandler")
