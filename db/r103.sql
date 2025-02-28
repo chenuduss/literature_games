@@ -5,7 +5,8 @@ CREATE TABLE competition_ballot (
     points integer NOT NULL DEFAULT 0,
     FOREIGN KEY (comp_id) REFERENCES competition (id),
     FOREIGN KEY (user_id) REFERENCES sd_user (id),
-    FOREIGN KEY (file_id) REFERENCES uploaded_file (id)
+    FOREIGN KEY (file_id) REFERENCES uploaded_file (id),
+    PRIMARY KEY (comp_id, user_id, file_id)
 );
 
 CREATE INDEX idx_competition_ballot_comp_id on competition_ballot ("comp_id");

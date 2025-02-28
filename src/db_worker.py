@@ -63,6 +63,14 @@ class FileInfo:
         self.FilePath = file_path
         self.Owner = owner
 
+class BallotInfo:
+    def __init__(self, comp_id: int, user_id:int, file_id:int, points:int):
+        self.CompId = comp_id
+        self.UserId = user_id
+        self.FileId = file_id
+        self.Points = points
+
+
 class CompetitionInfo:
     def __init__(self, 
             id: int, 
@@ -720,3 +728,11 @@ class DbWorkerService:
             return UserFullInfo(user_id, rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4])
 
         return None        
+    
+    @ConnectionPool
+    def InsertOrUpdateBallots(self, ballots:list[tuple[int, int, int, int]], connection=None) :
+        ps_cursor = connection.cursor()
+
+        for ballot in ballots:
+            ps_cursor.execute("INSERT INTO competition_ballot (comp_id, user_id, file_id, points) values(%s, %s, %s, %s) ON CONFLICT (comp_id, user_id, file_id) DO UPDATE SET points = %s", (ballot[0], ballot[1], ballot[2], ballot[3], ballot[3]))         
+        connection.commit()
