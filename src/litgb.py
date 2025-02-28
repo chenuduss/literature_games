@@ -1,7 +1,7 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, UserInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo
 import logging
 import json
 import time
@@ -17,6 +17,8 @@ import traceback
 import pytz
 from competition_worker import ComepetitionWorker, CompetitionFullInfo
 from competition_service import CompetitionService
+from competition_polling import ICompetitionPolling
+from default_duel_polling import DefaultDuelPolling
 
 class CommandLimits:
     def __init__(self, global_min_inteval:float, chat_min_inteval:float):
@@ -72,8 +74,8 @@ class LitGBot(CompetitionService):
         self.UserConversations:dict[int, UserConversation] = {}
 
         self.JoinToCompetitionCommandRegex = re.compile("/join\\s+(\\d+)\\s+(\\S+)")
-        self.CompetitionMenuQueryRegex = re.compile("comp_(\\S+)_(\\S+)_(\\d+)")
-
+        self.CompetitionMenuQueryRegex = re.compile("comp_(\\S+)_(\\S+)_(\\d+)")      
+        
         self.DefaultAcceptDeadlineTimedelta = timedelta(minutes=defaults.get('default_accept_deadline_min', 60*4))
         if 'default_polling_stage_min' in defaults:
             self.DefaultPollingStageTimedelta = timedelta(minutes=defaults['default_polling_stage_min'])
@@ -97,6 +99,9 @@ class LitGBot(CompetitionService):
         self.Admins = set(admin["user_ids"])
         self.Timezone = pytz.timezone("Europe/Moscow")
 
+        self.PollingHandlers: dict[str, ICompetitionPolling] = {}
+        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db)
+        
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -926,6 +931,7 @@ class LitGBot(CompetitionService):
             await update.message.reply_text("✖️ Нет конкурсов")
             return
         comp_info = self.GetCompetitionFullInfo(comp) 
+
         await update.message.reply_text(
             self.comp_poll_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
             reply_markup=self.comp_poll_menu_keyboard(comp_info, update.effective_user.id, update.effective_chat.id))        
@@ -1337,6 +1343,18 @@ class LitGBot(CompetitionService):
         await self.CheckCompetitionStates(context)
 
 
+    async def polling_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
+        logging.info("[polling_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+
+        poll_type, comp_id, custom_type_data = ICompetitionPolling.ParsePollingMenuQuery(update.query.data)
+
+        handler = self.PollingHandlers.get(poll_type, None)
+        if handler is None:
+            raise LitGBException("unknowm polling type (handler not found)")
+           
+        handler.MenuHandler(update, context, comp_id, custom_type_data)
+        
+
 if __name__ == '__main__':    
 
     parser = argparse.ArgumentParser(
@@ -1389,6 +1407,8 @@ if __name__ == '__main__':
 
     app.add_handler(CallbackQueryHandler(bot.file_menu_handler, pattern="file_\\S+"))
     app.add_handler(CallbackQueryHandler(bot.comp_menu_handler, pattern="comp_\\S+"))
+    app.add_handler(CallbackQueryHandler(bot.polling_menu_handler, pattern=ICompetitionPolling.GetMenuPattern()))
+    
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bot.handle_text))
     
     app.add_handler(MessageHandler(filters.Document.ALL, bot.downloader))    
