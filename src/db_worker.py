@@ -64,10 +64,8 @@ class FileInfo:
         self.FilePath = file_path
         self.Owner = owner
 
-class BallotInfo:
-    def __init__(self, comp_id: int, user_id:int, file_id:int, points:int):
-        self.CompId = comp_id
-        self.UserId = user_id
+class FileBallot:
+    def __init__(self, file_id:int, points:int):
         self.FileId = file_id
         self.Points = points
 
@@ -144,12 +142,10 @@ class  CompetitionStat:
     def __init__(self, 
             comp_id:int,             
             registered_members:list[UserInfo], 
-            submitted_members:list[UserInfo], 
             submitted_files:dict[UserInfo, list[FileInfo]], 
             total_submitted_text_size:int):
         self.CompId = comp_id
         self.RegisteredMembers = registered_members
-        self.SubmittedMembers = submitted_members
         self.SubmittedFiles = submitted_files
         self.SubmittedFileCount = 0
         for user_files in self.SubmittedFiles.values():
@@ -160,7 +156,19 @@ class  CompetitionStat:
         for m in self.RegisteredMembers:
             if m.Id == user_id:
                 return True
-        return False        
+        return False
+    
+    def IsUserSubmitted(self, user_id:int) -> bool:
+        for m in self.SubmittedFiles.keys():
+            if m.Id == user_id:
+                return True
+        return False
+
+    def SubmittedMemberCount(self) -> int:
+        return len(self.SubmittedFiles.keys())
+    
+    def GetSubmittedMembers(self) -> list[UserInfo]:
+        return list(self.SubmittedFiles.keys())
 
 class DbWorkerService:   
     def __init__(self, config:dict):
@@ -605,13 +613,12 @@ class DbWorkerService:
         registered_users = set()
         total_text_size = 0
         submitted_files:dict[UserInfo, list[FileInfo]] = {}
-        submitted_members = set()
+
         for row in rows:
             usr = UserInfo(row[0], row[1])
             registered_users.add(usr)
-            if not (row[2] is None):
-                
-                submitted_members.add(usr)
+            if not (row[2] is None): 
+
                 if not (usr in submitted_files):
                     submitted_files[usr] = []
 
@@ -619,7 +626,7 @@ class DbWorkerService:
                     FileInfo(row[3], row[4], row[5], row[2], row[6], row[7], row[8], usr.Id))
                 total_text_size += row[2]
 
-        return CompetitionStat(comp_id, list(registered_users), list(submitted_members), submitted_files, total_text_size)
+        return CompetitionStat(comp_id, list(registered_users), submitted_files, total_text_size)
         
     @ConnectionPool    
     def RemoveMembersWithoutFiles(self, comp_id:int, connection=None) -> CompetitionStat:    
@@ -787,3 +794,19 @@ class DbWorkerService:
         for ballot in ballots:
             ps_cursor.execute("INSERT INTO competition_ballot (comp_id, user_id, file_id, points) values(%s, %s, %s, %s) ON CONFLICT (comp_id, user_id, file_id) DO UPDATE SET points = %s", (ballot[0], ballot[1], ballot[2], ballot[3], ballot[3]))         
         connection.commit()
+
+    @ConnectionPool
+    def SelectCompetitionBallots(self, comp_id:int, connection=None) -> dict[int, list[FileBallot]]:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("SELECT user_id, file_id, points FROM competition_ballot WHERE comp_id = %s", (comp_id, ))
+        rows = ps_cursor.fetchall()        
+        result:dict[int, list[FileBallot]] = {}
+
+        for row in rows:
+            
+            if not (row[0] in result):
+                result[row[0]] = []
+
+            result[row[0]].append(FileBallot(row[1], row[2]))
+
+        return result

@@ -101,7 +101,7 @@ class LitGBot(CompetitionService):
         self.Timezone = pytz.timezone("Europe/Moscow")
 
         self.PollingHandlers: dict[str, ICompetitionPolling] = {}
-        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db)
+        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db, self)
         
 
     @staticmethod
@@ -1216,7 +1216,7 @@ class LitGBot(CompetitionService):
                 i += 1
                 result +="\n🔹 "+str(i)+": "+m.Title
         else:
-            result +="\n📈 Кол-во участников приславших рассказы: " + str(len(comp_info.Stat.SubmittedMembers))    
+            result +="\n📈 Кол-во участников приславших рассказы: " + str(comp_info.Stat.SubmittedMemberCount())    
             result +="\n📚 Кол-во присланных рассказов: " + str(comp_info.Stat.SubmittedFileCount)  
 
 

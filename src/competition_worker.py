@@ -8,7 +8,7 @@ class CompetitionFullInfo:
         self.Stat = stat
         self.Chat = chat
 
-class ComepetitionWorker:
+class CompetitionWorker:
     def __init__(self, db:DbWorkerService):
         self.Db = db
         self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
@@ -139,9 +139,9 @@ class ComepetitionWorker:
     @staticmethod      
     def CheckCompetitionEndCondition(comp:CompetitionInfo, stat:CompetitionStat) -> bool:
         if comp.IsClosedType():
-            return len(stat.SubmittedMembers) < 2
+            return stat.SubmittedMemberCount() < 2
         else:
-            return len(stat.SubmittedMembers) < 3
+            return stat.SubmittedMemberCount() < 3
 
     def GetCompetitionFullInfo(self, comp:CompetitionInfo) -> CompetitionFullInfo:
         stat = self.Db.GetCompetitionStat(comp.Id)

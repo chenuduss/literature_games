@@ -1,4 +1,4 @@
-from competition_worker import ComepetitionWorker
+from competition_worker import CompetitionWorker
 from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo
 import logging
 from telegram.ext import ContextTypes
@@ -8,9 +8,9 @@ from utils import DatetimeToString
 from file_service import FileService
 from file_storage import FileStorage
 
-class CompetitionService(ComepetitionWorker, FileService):
+class CompetitionService(CompetitionWorker, FileService):
     def __init__(self, db:DbWorkerService, file_stor:FileStorage):
-        ComepetitionWorker.__init__(self, db)
+        CompetitionWorker.__init__(self, db)
         FileService.__init__(self, file_stor)
       
 
@@ -129,10 +129,10 @@ class CompetitionService(ComepetitionWorker, FileService):
     async def ShowFileAuthors(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):        
 
         if comp.IsClosedType():
-            if len(comp_stat.SubmittedMembers) < 2:
+            if comp_stat.SubmittedMemberCount() < 2:
                 return
         else:
-            if len(comp_stat.SubmittedMembers) < 3:
+            if comp_stat.SubmittedMemberCount() < 3:
                 return
 
         message_text = "Авторы работ в конкурсе #"+str(comp.Id)+"\n\n"
@@ -158,8 +158,8 @@ class CompetitionService(ComepetitionWorker, FileService):
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 
         if comp.IsClosedType():
-            if len(comp_stat.SubmittedMembers) == 1:
-                await self.ProcessWinnedMember(comp, comp_stat.SubmittedMembers[0], context)
+            if comp_stat.SubmittedMemberCount() == 1:
+                await self.ProcessWinnedMember(comp, comp_stat.GetSubmittedMembers()[0], context)
 
         await self.ShowFileAuthors(comp, comp_stat, context)        
         
