@@ -15,7 +15,7 @@ from utils import GetRandomString, MakeHumanReadableAmount, DatetimeToString, Ti
 import re
 import traceback
 import pytz
-from competition_worker import ComepetitionWorker, CompetitionFullInfo
+from competition_worker import CompetitionWorker, CompetitionFullInfo
 from competition_service import CompetitionService
 from competition_polling import ICompetitionPolling
 from default_duel_polling import DefaultDuelPolling
@@ -1132,13 +1132,13 @@ class LitGBot(CompetitionService):
                 if not comp_stat.IsUserRegistered(user_id):
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
-            if ComepetitionWorker.CheckCompetitionLeaveable(comp) is None:
+            if CompetitionWorker.CheckCompetitionLeaveable(comp) is None:
                 if comp_stat.IsUserRegistered(user_id):   
                     if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
-        if ComepetitionWorker.CheckCompetitionInPollingStage(comp) is None:           
+        if CompetitionWorker.CheckCompetitionInPollingStage(comp) is None:           
             keyboard.append([InlineKeyboardButton('Голосование', callback_data='comp_'+list_type+'_polling_'+str(comp.Id))])
 
         return InlineKeyboardMarkup(keyboard)  
