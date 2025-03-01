@@ -781,6 +781,7 @@ class DbWorkerService:
     
     @ConnectionPool
     def InsertOrUpdateBallots(self, ballots:list[tuple[int, int, int, int]], connection=None) :
+        """ tuple (comp_id, user_id, file_id, points ) """
         ps_cursor = connection.cursor()
 
         for ballot in ballots:
