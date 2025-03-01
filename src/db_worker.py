@@ -140,12 +140,12 @@ class CompetitionInfo:
     def __hash__(self):
         return hash(self.Id)            
 
-class CompetitionStat:
+class  CompetitionStat:
     def __init__(self, 
             comp_id:int,             
             registered_members:list[UserInfo], 
             submitted_members:list[UserInfo], 
-            submitted_files:dict[int, list[FileInfo]], 
+            submitted_files:dict[UserInfo, list[FileInfo]], 
             total_submitted_text_size:int):
         self.CompId = comp_id
         self.RegisteredMembers = registered_members
@@ -604,7 +604,7 @@ class DbWorkerService:
 
         registered_users = set()
         total_text_size = 0
-        submitted_files:dict[int, list[FileInfo]] = {}
+        submitted_files:dict[UserInfo, list[FileInfo]] = {}
         submitted_members = set()
         for row in rows:
             usr = UserInfo(row[0], row[1])
@@ -612,10 +612,10 @@ class DbWorkerService:
             if not (row[2] is None):
                 
                 submitted_members.add(usr)
-                if not (usr.Id in submitted_files):
-                    submitted_files[usr.Id] = []
+                if not (usr in submitted_files):
+                    submitted_files[usr] = []
 
-                submitted_files[usr.Id].append(
+                submitted_files[usr].append(
                     FileInfo(row[3], row[4], row[5], row[2], row[6], row[7], row[8], usr.Id))
                 total_text_size += row[2]
 

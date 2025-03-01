@@ -10,14 +10,21 @@ class DefaultDuelPolling(ICompetitionPolling):
     def __init__(self, db:DbWorkerService):
         ICompetitionPolling.__init__(self, db)
 
-    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        msgtext = "В разработке (default_duel)"
-        keyboard = []
+    @staticmethod
+    def MakeQueryString(comp_id:int, query:str) -> str:
+        return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
 
+    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
+        schema = self.Db.GetPollingSchema(comp.PollingScheme)
+        msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, schema)
+
+        msgtext += "\n\n\nВ разработке (default_duel)"
+
+        keyboard = []
         if send_reply:
             await update.message.reply_text(msgtext, reply_markup=InlineKeyboardMarkup(keyboard))        
         else:        
             await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=InlineKeyboardMarkup(keyboard))
 
-    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        raise NotImplementedError("DefaultDuelPolling.PollingMessageHandler")
+    async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
+        raise NotImplementedError("DefaultDuelPolling.MenuHandler")   
