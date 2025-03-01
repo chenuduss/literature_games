@@ -174,17 +174,29 @@ class DbWorkerService:
             database = config["db"])  
         self.DefaultNewUsersFileLimit = 0
         self.PollingSchemasCache:dict[int, PollingSchemaInfo] = {}
+        self.PollingSchemasCacheByAliases:dict[str, PollingSchemaInfo] = {}
 
     @ConnectionPool    
     def FindPollingSchema(self, id:int, connection=None) -> PollingSchemaInfo:    
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT alias, title, description, for_open_competition FROM uploaded_file WHERE id < %s ", (id, ))        
+        ps_cursor.execute("SELECT alias, title, description, for_open_competition FROM polling_scheme WHERE id = %s ", (id, ))        
         rows = ps_cursor.fetchall()
         
         if len(rows) > 0:
             return PollingSchemaInfo(id, rows[0][0], rows[0][1], rows[0][2], rows[0][3])
 
         return None
+    
+    @ConnectionPool    
+    def FindPollingSchemaByAlias(self, alias:str, connection=None) -> PollingSchemaInfo:    
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT id, title, description, for_open_competition FROM polling_scheme WHERE alias = %s ", (alias, ))        
+        rows = ps_cursor.fetchall()
+        
+        if len(rows) > 0:
+            return PollingSchemaInfo(rows[0][0], alias, rows[0][1], rows[0][2], rows[0][3])
+
+        return None    
 
     def GetPollingSchema(self, id:int) -> PollingSchemaInfo:
         result = self.PollingSchemasCache.get(id, None)
@@ -193,6 +205,28 @@ class DbWorkerService:
             if result is None:
                 raise LitGBException("polling schema not found, id = "+str(id))
             self.PollingSchemasCache[id] = result
+
+        return result 
+
+    def GetPollingSchemaByName(self, name:str) -> PollingSchemaInfo:
+        result = self.PollingSchemasCacheByAliases.get(name, None)
+        if result is None:
+            result = self.FindPollingSchemaByAlias(name)
+            if result is None:
+                raise LitGBException("polling schema not found, name = "+name)
+            self.PollingSchemasCacheByAliases[name] = result
+
+        return result   
+         
+    @ConnectionPool
+    def FetchAllPollingSchemas(self, connection=None) -> list[PollingSchemaInfo]:     
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("SELECT id FROM polling_scheme")        
+        rows = ps_cursor.fetchall()
+        
+        result = [] 
+        for row in rows:
+            result.append(self.GetPollingSchema(row[0]))
 
         return result    
 
@@ -472,13 +506,14 @@ class DbWorkerService:
             min_text_size:int,
             max_text_size:int,
             declared_member_count:int|None,
-            subject:str,            
+            subject:str, 
+            polling_schema_id:int,           
             connection=None) -> CompetitionInfo:
         comp_id = None
         ps_cursor = connection.cursor() 
         ps_cursor.execute(
-            "INSERT INTO competition (chat_id, created_by, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
-            (chat_id, user_id, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject)) 
+            "INSERT INTO competition (chat_id, created_by, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, polling_scheme) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", 
+            (chat_id, user_id, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, polling_schema_id)) 
         rows = ps_cursor.fetchall()
         if len(rows) > 0:
             comp_id = rows[0][0]

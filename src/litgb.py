@@ -180,12 +180,27 @@ class LitGBot(CompetitionService):
         result += "\n/competition_polling <id> - карточка голосования конкурса"
         result += "\n/current_competition - карточка конкурса текущего чата в стадии голосования"
         result += "\n/current_polling - состояние голосования конкурса текущего чата в стадии голосования"
+        result += "\n/current_files - получение файлов конкурса текущего чата в стадии голосования"        
         result += "\n/results <id> - результаты конкурса"
         result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личных сообщениях - список активных конкурсов"
         result += "\n/joinable_competitions - список конкурсов, к которым можно присоединиться"
         result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
+        result += "\n/polling_schemas - информация о схемах голосования"
         
         return result
+    
+    async def polling_schemas(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        status_msg ="Доступные схемы голосования бота \"Литературные игры\""
+        status_msg += "\n"
+        schemas = self.Db.FetchAllPollingSchemas()
+        index = 0
+        for schema in schemas:
+            index += 1
+            status_msg += "\n\n🔷 "+str(index) +". "+schema.Title
+            status_msg += "\nТип конкурса: "+("открытый" if schema.ForOpenType else "закрытый")
+            status_msg += "\n"+schema.Description
+
+        await update.message.reply_text(status_msg)           
     
     async def SendHelpAfterCreateCompetition(self, comp:CompetitionInfo, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
@@ -753,6 +768,19 @@ class LitGBot(CompetitionService):
                 return False
 
         return True
+    
+    def ChooseDefaultPollingSchemaForClosed(self, member_count:int) -> PollingSchemaInfo:
+        if member_count == 2:
+            return self.Db.GetPollingSchemaByName("default_duel")
+        elif member_count == 3:
+            return self.Db.GetPollingSchemaByName("default_triel")
+        elif member_count >= 4:
+            return self.Db.GetPollingSchemaByName("default_closed_4")
+        
+        raise LitGBException("impossible case (lol 2)")
+
+    def ChooseDefaultPollingSchemaForOpen(self) -> PollingSchemaInfo:
+        return self.Db.GetPollingSchemaByName("default_open")
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -777,7 +805,8 @@ class LitGBot(CompetitionService):
             self.DefaultMinTextSize,
             self.DefaultMaxTextSize,
             member_count,
-            "тема не задана")
+            "тема не задана",
+            self.ChooseDefaultPollingSchemaForClosed(member_count).Id)
         logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
         if not (chat_id is None):
             comp = await self.AfterCompetitionAttach(comp, context)
@@ -806,7 +835,8 @@ class LitGBot(CompetitionService):
             self.DefaultMinTextSize,
             self.DefaultMaxTextSize,
             None,
-            "тема не задана")
+            "тема не задана",
+            self.ChooseDefaultPollingSchemaForOpen().Id)
         logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))        
         await update.message.reply_text("✔️ Создан новый открытый конкурс #"+str(comp.Id)) 
 
@@ -897,6 +927,19 @@ class LitGBot(CompetitionService):
         comp = self.FindCompetitionInPollingState(comp_id)
         if update.effective_chat.id != comp.ChatId:
             raise LitGBException("Команду можно выполнить только в чате, к которому привязан конкурс")
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await self.SendSubmittedFiles(comp.ChatId, comp_info.Stat, context)
+        await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
+
+    async def current_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logging.info("[CURRFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionFilesLimits.Check(update.effective_user.id, update.effective_chat.id)      
+
+        
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)
+        if comp is None:
+            await update.message.reply_text("✖️ Нет конкурсов")
+            return
         comp_info = self.GetCompetitionFullInfo(comp)
         await self.SendSubmittedFiles(comp.ChatId, comp_info.Stat, context)
         await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
@@ -1388,6 +1431,7 @@ if __name__ == '__main__':
 
     app.add_handler(CommandHandler("start", bot.help))
     app.add_handler(CommandHandler("help", bot.help))
+    app.add_handler(CommandHandler("polling_schemas", bot.polling_schemas))
     app.add_handler(CommandHandler("status", bot.status))
     app.add_handler(CommandHandler("filelist", bot.filelist))
     app.add_handler(CommandHandler("files", bot.files))
@@ -1401,7 +1445,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("competitions", bot.competitions))  
     app.add_handler(CommandHandler("competition", bot.competition))  
     app.add_handler(CommandHandler("competition_polling", bot.competition_polling)) 
-    app.add_handler(CommandHandler("competition_files", bot.competition_files))  
+    app.add_handler(CommandHandler("competition_files", bot.competition_files))
+    app.add_handler(CommandHandler("current_files", bot.current_files))
     app.add_handler(CommandHandler("current_competition", bot.current_competition))  
     app.add_handler(CommandHandler("current_polling", bot.current_polling)) 
     app.add_handler(CommandHandler("joinable_competitions", bot.joinable_competitions))
