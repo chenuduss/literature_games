@@ -1149,7 +1149,7 @@ class LitGBot(CompetitionService):
         if not (comp_info.Comp.Finished is None):
             result += " ЗАВЕРШЁН"
 
-        result +="\nТип: "
+        result +="\n📄 Тип: "
         if comp_info.Comp.IsClosedType():
             result +="дуэль/жюри"
         else:
