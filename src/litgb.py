@@ -1143,7 +1143,7 @@ class LitGBot(CompetitionService):
 
     
     def comp_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
-        result = "#" + str(comp_info.Comp.Id)
+        result = "💠 #" + str(comp_info.Comp.Id)
         if comp_info.Comp.Canceled:
             result += " ОТМЕНЁН"
         if not (comp_info.Comp.Finished is None):
