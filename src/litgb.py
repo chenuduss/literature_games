@@ -18,7 +18,6 @@ import pytz
 from competition_worker import CompetitionWorker, CompetitionFullInfo
 from competition_service import CompetitionService
 from competition_polling import ICompetitionPolling
-from default_duel_polling import DefaultDuelPolling
 
 class CommandLimits:
     def __init__(self, global_min_inteval:float, chat_min_inteval:float):
@@ -98,11 +97,7 @@ class LitGBot(CompetitionService):
             raise LitGBException("invalid maximum_text_size default value: "+str(self.DefaultMaxTextSize))
 
         self.Admins = set(admin["user_ids"])
-        self.Timezone = pytz.timezone("Europe/Moscow")
-
-        self.PollingHandlers: dict[str, ICompetitionPolling] = {}
-        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db, self)
-        
+        self.Timezone = pytz.timezone("Europe/Moscow")        
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -183,6 +178,7 @@ class LitGBot(CompetitionService):
         result += "\n/current_polling - состояние голосования конкурса текущего чата в стадии голосования"
         result += "\n/current_files - получение файлов конкурса текущего чата в стадии голосования"        
         result += "\n/results <id> - результаты конкурса"
+        result += "\n/ballots <id> - вывод голосования участников завершённого конкурса"
         result += "\n/competitions - список конкурсов, которые привязаны к текущему чату. В личных сообщениях - список активных конкурсов"
         result += "\n/joinable_competitions - список конкурсов, к которым можно присоединиться"
         result += "\n/mycompetitions (только в личке) - список активных конкурсов, которые создал текущий пользователь или в которых он участвует"
@@ -920,6 +916,15 @@ class LitGBot(CompetitionService):
         comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text("В разработке")
+
+    async def ballots(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
+        logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/ballots")  
+        comp = self.FindFinishedSuccessCompetition(comp_id)
+        comp_info = self.GetCompetitionFullInfo(comp)
+        await update.message.reply_text("В разработке")
+        
         
     async def competition_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info("[COMPFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
@@ -1389,19 +1394,8 @@ class LitGBot(CompetitionService):
     async def competition_service_event(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("competition_service_event:")
         await self.CheckCompetitionStates(context)
+  
 
-    def GetPollingHandler(self, poll_type:str) -> ICompetitionPolling:
-        handler = self.PollingHandlers.get(poll_type, None)
-        if handler is None:
-            raise LitGBException("unknowm polling type (handler not found)")
-        return handler
-    
-    def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
-        return self.GetPollingHandler(schema.Alias)
-    
-    def GetCompeitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:
-        schema_info = self.Db.GetPollingSchema(comp.PollingScheme)
-        return self.GetPollingHandlerFromSchemaInfo(schema_info)
 
     async def polling_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[polling_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1455,6 +1449,7 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("join", bot.join_to_competition))
     app.add_handler(CommandHandler("mycompetitions", bot.mycompetitions))
     app.add_handler(CommandHandler("results", bot.results))
+    app.add_handler(CommandHandler("ballots", bot.ballots))
     
 
     #ADMINS

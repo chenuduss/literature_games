@@ -1,5 +1,5 @@
 from competition_worker import CompetitionWorker
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo
 import logging
 from telegram.ext import ContextTypes
 from litgb_exception import LitGBException
@@ -8,11 +8,16 @@ from utils import DatetimeToString
 from file_service import FileService
 from file_storage import FileStorage
 
+from competition_polling import ICompetitionPolling
+from default_duel_polling import DefaultDuelPolling
+
 class CompetitionService(CompetitionWorker, FileService):
     def __init__(self, db:DbWorkerService, file_stor:FileStorage):
         CompetitionWorker.__init__(self, db)
         FileService.__init__(self, file_stor)
-      
+
+        self.PollingHandlers: dict[str, ICompetitionPolling] = {}
+        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db, self)      
 
     async def ReportCompetitionStateToAttachedChat(self, 
             comp:CompetitionInfo, 
@@ -157,7 +162,8 @@ class CompetitionService(CompetitionWorker, FileService):
         pass
 
     async def ShowResults(self, comp:CompetitionInfo):
-        pass
+        polling_handler = self.GetCompeitionPollingHandler(comp)
+        comp_results = polling_handler.GetPollingResults(comp)
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         comp = self.Db.FinishCompetition(comp.Id)
@@ -167,7 +173,7 @@ class CompetitionService(CompetitionWorker, FileService):
             if comp_stat.SubmittedMemberCount() == 1:
                 await self.ProcessWinnedMember(comp, comp_stat.GetSubmittedMembers()[0], context)
 
-
+        await self.ShowResults()
         await self.ShowFileAuthors(comp, comp_stat, context)
         await self.ShowBallots()
         
@@ -237,3 +243,16 @@ class CompetitionService(CompetitionWorker, FileService):
     async def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
         await self.CheckPollingStageStart(context)    
         await self.CheckPollingStageEnd(context)
+
+    def GetPollingHandler(self, poll_type:str) -> ICompetitionPolling:
+        handler = self.PollingHandlers.get(poll_type, None)
+        if handler is None:
+            raise LitGBException("unknowm polling type (handler not found)")
+        return handler
+    
+    def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
+        return self.GetPollingHandler(schema.Alias)
+    
+    def GetCompeitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:
+        schema_info = self.Db.GetPollingSchema(comp.PollingScheme)
+        return self.GetPollingHandlerFromSchemaInfo(schema_info)    
