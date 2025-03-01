@@ -2,6 +2,7 @@ import psycopg2
 import psycopg2.extras
 from psycopg2 import pool
 from datetime import datetime
+from litgb_exception import LitGBException
 
 def ConnectionPool(function_to_decorate):    
     def wrapper(*args, **kwargs):
@@ -70,6 +71,13 @@ class BallotInfo:
         self.FileId = file_id
         self.Points = points
 
+class PollingSchemaInfo:    
+    def __init__(self, id:int, alias:str, title:str, description:str, for_open_competition:bool):
+        self.Id = id
+        self.Alias = alias
+        self.Title = title
+        self.Description = description
+        self.ForOpenType = for_open_competition
 
 class CompetitionInfo:
     def __init__(self, 
@@ -88,9 +96,10 @@ class CompetitionInfo:
             subject:str,
             subject_ext:str|None,
             max_files_per_member:int,
-            polling_started:datetime|None = None,
-            finished:datetime|None = None,
-            canceled:bool = False):
+            polling_started:datetime|None,
+            finished:datetime|None,
+            canceled:bool,
+            polling_scheme:int):
         self.Id = id
         self.ChatId = chat_id
         self.Created = created             
@@ -109,6 +118,7 @@ class CompetitionInfo:
         self.PollingStarted = polling_started
         self.Finished = finished
         self.Canceled = canceled
+        self.PollingScheme = polling_scheme
 
     def IsOpenType(self) -> bool:
         return self.DeclaredMemberCount is None
@@ -162,9 +172,30 @@ class DbWorkerService:
             host = config["host"],
             port = config["port"],
             database = config["db"])  
-        self.DefaultNewUsersFileLimit = 0     
+        self.DefaultNewUsersFileLimit = 0
+        self.PollingSchemasCache:dict[int, PollingSchemaInfo] = {}
 
+    @ConnectionPool    
+    def FindPollingSchema(self, id:int, connection=None) -> PollingSchemaInfo:    
+        ps_cursor = connection.cursor()          
+        ps_cursor.execute("SELECT alias, title, description, for_open_competition FROM uploaded_file WHERE id < %s ", (id, ))        
+        rows = ps_cursor.fetchall()
         
+        if len(rows) > 0:
+            return PollingSchemaInfo(id, rows[0][0], rows[0][1], rows[0][2], rows[0][3])
+
+        return None
+
+    def GetPollingSchema(self, id:int) -> PollingSchemaInfo:
+        result = self.PollingSchemasCache.get(id, None)
+        if result is None:
+            result = self.FindPollingSchema(id)
+            if result is None:
+                raise LitGBException("polling schema not found, id = "+str(id))
+            self.PollingSchemasCache[id] = result
+
+        return result    
+
     @ConnectionPool    
     def EnsureUserExists(self, user_id:int, title:str,  connection=None) -> None:
         ps_cursor = connection.cursor()          
@@ -371,7 +402,7 @@ class DbWorkerService:
     @staticmethod
     def SelectCompFields(obname:str|None = None) -> str:
         if obname is None:
-            return "id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled"
+            return "id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled, polling_scheme"
         
         result = ""
         result += obname+".id, "
@@ -391,7 +422,8 @@ class DbWorkerService:
         result += obname+".max_files_per_member, "
         result += obname+".polling_started, "
         result += obname+".finished, "
-        result += obname+".canceled "
+        result += obname+".canceled, "
+        result += obname+".polling_scheme "
         return result
     
     @staticmethod
@@ -414,7 +446,8 @@ class DbWorkerService:
                 row[14],
                 row[15],
                 row[16],
-                row[17])
+                row[17],
+                row[18])
     
     @ConnectionPool    
     def SelectActiveCompetitionsInChat(self, chat_id:int, after:datetime, before:datetime, connection=None) -> list[CompetitionInfo]:

@@ -35,7 +35,7 @@ CREATE TABLE polling_scheme (
 CREATE INDEX idx_polling_scheme_user_for_open_competition on polling_scheme ("for_open_competition");
 
 INSERT INTO polling_scheme (for_open_competition, alias, title, description) VALUES (FALSE, 'default_duel', 'Классическая дуэль', 'Классическая дуэль с голосованием за одного из двоих участников');
-INSERT INTO polling_scheme (for_open_competition, alias, title, description) VALUES (FALSE, 'default_triel', 'Жюри над тремя', 'Конкурс с тремя участниками и голосованием жюри. Жюри выбирает ТОП-2, участники голосуют за одного из двоих. Первое место - 2 балла, второе - 1 балл. Голос участника - 1 балл. Голосование участников обязательно');
+INSERT INTO polling_scheme (for_open_competition, alias, title, description) VALUES (FALSE, 'default_triel', 'Жюри над тремя', 'Конкурс с тремя участниками и голосованием жюри. Жюри выбирает ТОП-2, участники голосуют за одного из двоих. Первое место - 2 балла, второе - 1 балл. Голос участника - 2 балла. Голосование участников обязательно');
 INSERT INTO polling_scheme (for_open_competition, alias, title, description) VALUES (FALSE, 'default_closed_4', 'Жюри 4+. Стандарт', 'Конкурс с четырьмя участниками и более. Голосуют читатели и участники');
 INSERT INTO polling_scheme (for_open_competition, alias, title, description) VALUES (TRUE, 'default_open', 'Самосуд. Стандарт', 'Стандартное голосование в конкурсе с самосудом');
 

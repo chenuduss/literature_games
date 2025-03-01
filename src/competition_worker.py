@@ -34,11 +34,23 @@ class ComepetitionWorker:
         
         return comp
     
-    def FindCompetitionInPollingState(self, comp_id:int) -> CompetitionInfo:
-        comp = self.FindNotFinishedCompetition(comp_id)
+    @staticmethod
+    def CheckCompetitionInPollingStage(comp:CompetitionInfo) -> str:
+        if not (comp.Finished is None):
+            return "🚫 Конкурс уже завершён"
         if not comp.IsPollingStarted():
-            raise LitGBException("🚫 Конкурс не перешёл в стадию голосования")
-        return comp    
+            return "🚫 Конкурс не перешёл в стадию голосования"
+        
+        return None
+    
+    def FindCompetitionInPollingState(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindNotFinishedCompetition(comp_id)        
+           
+        reason = self.CheckCompetitionInPollingStage(comp)
+        if reason is None:
+            return comp
+        
+        raise LitGBException(reason)   
 
     def FindCompetitionBeforePollingStage(self, comp_id:int) -> CompetitionInfo:
         comp = self.FindNotFinishedCompetition(comp_id)
@@ -189,4 +201,4 @@ class ComepetitionWorker:
             return self.Db.SelectJoinableCompetitions(after, before)        
         
         
-        raise LitGBException("unknown competitions list type: "+list_type)      
+        raise LitGBException("unknown competitions list type: "+list_type) 

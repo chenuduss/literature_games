@@ -1,7 +1,7 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo
 import logging
 import json
 import time
@@ -878,10 +878,8 @@ class LitGBot(CompetitionService):
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_polling")    
 
         comp = self.FindCompetitionInPollingState(comp_id)
-        comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_poll_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_poll_menu_keyboard(comp_info, update.effective_user.id, update.effective_chat.id))        
+        polling_handler = self.GetCompeitionPollingHandler(comp)
+        await polling_handler.PollingMessageHandler(update, context, comp, True)        
         
     async def results(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
         logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -928,13 +926,11 @@ class LitGBot(CompetitionService):
             return
         comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
         if comp is None:
-            await update.message.reply_text("✖️ Нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов в стадии голосования")
             return
-        comp_info = self.GetCompetitionFullInfo(comp) 
-
-        await update.message.reply_text(
-            self.comp_poll_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_poll_menu_keyboard(comp_info, update.effective_user.id, update.effective_chat.id))        
+        
+        polling_handler = self.GetCompeitionPollingHandler(comp)
+        await polling_handler.PollingMessageHandler(update, context, comp, True)      
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
@@ -1097,10 +1093,11 @@ class LitGBot(CompetitionService):
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
-        return InlineKeyboardMarkup(keyboard)
-  
-    def comp_poll_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
-        return "В разработке"
+        if ComepetitionWorker.CheckCompetitionInPollingStage(comp) is None:           
+            keyboard.append([InlineKeyboardButton('Голосование', callback_data='comp_'+list_type+'_polling_'+str(comp.Id))])
+
+        return InlineKeyboardMarkup(keyboard)  
+
     
     def comp_menu_message(self, comp_info:CompetitionFullInfo, user_id:int, chat_id:int) -> str:        
         result = "#" + str(comp_info.Comp.Id)
@@ -1113,7 +1110,10 @@ class LitGBot(CompetitionService):
         if comp_info.Comp.IsClosedType():
             result +="дуэль/жюри"
         else:
-            result +="🔫 самосуд"    
+            result +="🔫 самосуд"
+
+        polling_schema = self.Db.GetPollingSchema(comp_info.Comp.PollingScheme)
+        result +="\n🗳 Схема голосования: "+polling_schema.Title
 
         result +="\n\nСоздан: " + DatetimeToString(comp_info.Comp.Created)
         if not (comp_info.Comp.Confirmed is None):
@@ -1325,9 +1325,12 @@ class LitGBot(CompetitionService):
                 await query.edit_message_text(
                     text=self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),
                     reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))  
+            elif action == "polling":                
+                comp = self.FindCompetitionInPollingState(comp_id)
+                polling_handler = self.GetCompeitionPollingHandler(comp)
+                await polling_handler.PollingMessageHandler(update, context, comp, False)
             else:
-                raise LitGBException("unknown menu action: "+action)
-            
+                raise LitGBException("unknown menu action: "+action)            
 
         except LitGBException as ex:
             await query.edit_message_text(
@@ -1342,17 +1345,25 @@ class LitGBot(CompetitionService):
         logging.info("competition_service_event:")
         await self.CheckCompetitionStates(context)
 
+    def GetPollingHandler(self, poll_type:str) -> ICompetitionPolling:
+        handler = self.PollingHandlers.get(poll_type, None)
+        if handler is None:
+            raise LitGBException("unknowm polling type (handler not found)")
+        return handler
+    
+    def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
+        return self.GetPollingHandler(schema.Alias)
+    
+    def GetCompeitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:
+        schema_info = self.Db.GetPollingSchema(comp.PollingScheme)
+        return self.GetPollingHandlerFromSchemaInfo(schema_info)
 
     async def polling_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[polling_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
 
         poll_type, comp_id, custom_type_data = ICompetitionPolling.ParsePollingMenuQuery(update.query.data)
-
-        handler = self.PollingHandlers.get(poll_type, None)
-        if handler is None:
-            raise LitGBException("unknowm polling type (handler not found)")
            
-        await handler.MenuHandler(update, context, comp_id, custom_type_data)
+        await self.GetPollingHandler(poll_type).MenuHandler(update, context, comp_id, custom_type_data)
         
 
 if __name__ == '__main__':    

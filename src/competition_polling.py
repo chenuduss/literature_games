@@ -22,7 +22,7 @@ class ICompetitionPolling:
     def GetMenuPattern() -> str:
         return "poll:\\S+:\\d+:\S*"
     
-    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo):
+    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         raise NotImplementedError("ICompetitionPolling.PollingMessageHandler")
 
     async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
