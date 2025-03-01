@@ -86,7 +86,8 @@ class LitGBot(CompetitionService):
         self.DefaultMinTextSize = defaults.get('minimum_text_size', 12000)
         self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)        
 
-        self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)        
+        self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
+        self.MaxAllowedCompetitionDeadlineFutureInterval = timedelta(days=40)
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
@@ -726,6 +727,8 @@ class LitGBot(CompetitionService):
                 new_deadlines = update.message.text.strip()
                 logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+new_deadlines) 
                 accept_files_deadline, polling_deadline = self.ParseDeadlines(new_deadlines, self.Timezone)
+                if polling_deadline > datetime.now(timezone.utc) + self.MaxAllowedCompetitionDeadlineFutureInterval:
+                    raise LitGBException("дедлайн голосования слишком далеко")
                 comp = self.FindPropertyChangableCompetition(convers.SetDeadlinesFor, update.effective_user.id)
                 if not (comp.ChatId is None):
                     if not self.CheckCompetitionDeadlines(comp.ChatId,):
@@ -750,18 +753,17 @@ class LitGBot(CompetitionService):
     
     @staticmethod
     def CheckDeadlinesIntersection(comp1:CompetitionInfo, comp2:CompetitionInfo) -> bool:
-        if (comp1.AcceptFilesDeadline <= comp2.PollingDeadline) and (comp1.AcceptFilesDeadline >= comp2.AcceptFilesDeadline):
+        """return True in deadlines intersected"""
+        if comp1.PollingDeadline <= comp2.AcceptFilesDeadline:
             return False
         
-        if (comp1.PollingDeadline <= comp2.PollingDeadline) and (comp1.PollingDeadline >= comp2.AcceptFilesDeadline):
-            return False
-        
-        if (comp1.PollingDeadline >= comp2.PollingDeadline) and (comp1.AcceptFilesDeadline <= comp2.AcceptFilesDeadline):
+        if comp1.AcceptFilesDeadline >= comp2.PollingDeadline:
             return False
         
         return True
     
     def CheckCompetitionDeadlines(self, chat_id:int, comp:CompetitionInfo) -> bool:
+        """return False if competition deadlines not allowed for this chat"""
         comps = self.Db.SelectActiveCompetitionsInChat(chat_id, comp.AcceptFilesDeadline, comp.AcceptFilesDeadline+self.MaxCompetitionDeadlineFutureInterval+timedelta(days=1))
         for c in comps:
             if self.CheckDeadlinesIntersection(comp, c):
