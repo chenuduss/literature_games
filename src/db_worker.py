@@ -406,29 +406,11 @@ class DbWorkerService:
     @ConnectionPool    
     def FindCompetition(self, id:int, connection=None) -> CompetitionInfo|None:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, chat_id, created, created_by, confirmed, started, accept_files_deadline, polling_deadline, entry_token, min_text_size, max_text_size, declared_member_count, subject, subject_ext, max_files_per_member, polling_started, finished, canceled FROM competition WHERE id = %s", (id, ))        
+        ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE id = %s", (id, ))        
         rows = ps_cursor.fetchall()
 
         if len(rows) > 0: 
-            return CompetitionInfo(
-                rows[0][0], 
-                rows[0][1], 
-                rows[0][2], 
-                rows[0][3], 
-                rows[0][4], 
-                rows[0][5],
-                rows[0][6], 
-                rows[0][7],
-                rows[0][8],
-                rows[0][9],
-                rows[0][10],
-                rows[0][11],
-                rows[0][12],
-                rows[0][13],
-                rows[0][14],
-                rows[0][15],
-                rows[0][16],
-                rows[0][17])
+            return self.MakeCompetitionInfoFromRow(rows[0])
 
         return None      
 
