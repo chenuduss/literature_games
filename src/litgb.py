@@ -189,14 +189,14 @@ class LitGBot(CompetitionService):
     
     async def polling_schemas(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_msg ="Доступные схемы голосования бота \"Литературные игры\""
-        status_msg += "\n"
-        schemas = self.Db.FetchAllPollingSchemas()
+        status_msg += "\n"        
         index = 0
-        for schema in schemas:
+        for handler in self.PollingHandlers.values():
             index += 1
-            status_msg += "\n\n🔷 "+str(index) +". "+schema.Title
-            status_msg += "\nТип конкурса: "+("открытый" if schema.ForOpenType else "закрытый")
-            status_msg += "\n"+schema.Description
+            status_msg += "\n\n🔷 "+str(index) +". "+handler.Config.Title
+            status_msg += "\nТип конкурса: "+("открытый" if handler.Config.ForOpenType else "закрытый")
+            status_msg += "\nМинимальное количество участников: "+str(handler.GetMinimumMemberCount())
+            status_msg += "\n"+handler.Config.Description
 
         await update.message.reply_text(status_msg)           
     
@@ -907,7 +907,7 @@ class LitGBot(CompetitionService):
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_polling")    
 
         comp = self.FindCompetitionInPollingState(comp_id)
-        polling_handler = self.GetCompeitionPollingHandler(comp)
+        polling_handler = self.GetCompetitionPollingHandler(comp)
         await polling_handler.PollingMessageHandler(update, context, comp, True)        
         
     async def results(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
@@ -980,7 +980,7 @@ class LitGBot(CompetitionService):
             await update.message.reply_text("✖️ Нет конкурсов в стадии голосования")
             return
         
-        polling_handler = self.GetCompeitionPollingHandler(comp)
+        polling_handler = self.GetCompetitionPollingHandler(comp)
         await polling_handler.PollingMessageHandler(update, context, comp, True)      
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
@@ -1378,7 +1378,7 @@ class LitGBot(CompetitionService):
                     reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))  
             elif action == "polling":                
                 comp = self.FindCompetitionInPollingState(comp_id)
-                polling_handler = self.GetCompeitionPollingHandler(comp)
+                polling_handler = self.GetCompetitionPollingHandler(comp)
                 await polling_handler.PollingMessageHandler(update, context, comp, False)
             else:
                 raise LitGBException("unknown menu action: "+action)            

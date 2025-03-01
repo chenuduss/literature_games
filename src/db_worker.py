@@ -70,12 +70,18 @@ class FileBallot:
         self.Points = points
 
 class PollingSchemaInfo:    
-    def __init__(self, id:int, alias:str, title:str, description:str, for_open_competition:bool):
+    def __init__(self, id:int, handler_name:str, title:str, description:str, for_open_competition:bool):
         self.Id = id
-        self.Alias = alias
+        self.HandlerName = handler_name
         self.Title = title
         self.Description = description
         self.ForOpenType = for_open_competition
+
+class PollingFileResults:
+    def __init__(self, rating_pos:int, file_id:int, score:int):
+        self.RatingPos = rating_pos
+        self.FileId = file_id
+        self.Score = score        
 
 class CompetitionInfo:
     def __init__(self, 
@@ -169,6 +175,9 @@ class  CompetitionStat:
     
     def GetSubmittedMembers(self) -> list[UserInfo]:
         return list(self.SubmittedFiles.keys())
+    
+    def GetUserInfo(self, id:int) -> UserInfo:
+        raise NotImplementedError("CompetitionStat.GetUserInfo")
 
 class DbWorkerService:   
     def __init__(self, config:dict):
@@ -182,30 +191,19 @@ class DbWorkerService:
             database = config["db"])  
         self.DefaultNewUsersFileLimit = 0
         self.PollingSchemasCache:dict[int, PollingSchemaInfo] = {}
-        self.PollingSchemasCacheByAliases:dict[str, PollingSchemaInfo] = {}
+
 
     @ConnectionPool    
     def FindPollingSchema(self, id:int, connection=None) -> PollingSchemaInfo:    
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT alias, title, description, for_open_competition FROM polling_scheme WHERE id = %s ", (id, ))        
+        ps_cursor.execute("SELECT handler_name, title, description, for_open_competition FROM polling_scheme WHERE id = %s ", (id, ))        
         rows = ps_cursor.fetchall()
         
         if len(rows) > 0:
             return PollingSchemaInfo(id, rows[0][0], rows[0][1], rows[0][2], rows[0][3])
 
-        return None
-    
-    @ConnectionPool    
-    def FindPollingSchemaByAlias(self, alias:str, connection=None) -> PollingSchemaInfo:    
-        ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, description, for_open_competition FROM polling_scheme WHERE alias = %s ", (alias, ))        
-        rows = ps_cursor.fetchall()
-        
-        if len(rows) > 0:
-            return PollingSchemaInfo(rows[0][0], alias, rows[0][1], rows[0][2], rows[0][3])
-
-        return None    
-
+        return None   
+  
     def GetPollingSchema(self, id:int) -> PollingSchemaInfo:
         result = self.PollingSchemasCache.get(id, None)
         if result is None:
@@ -214,17 +212,7 @@ class DbWorkerService:
                 raise LitGBException("polling schema not found, id = "+str(id))
             self.PollingSchemasCache[id] = result
 
-        return result 
-
-    def GetPollingSchemaByName(self, name:str) -> PollingSchemaInfo:
-        result = self.PollingSchemasCacheByAliases.get(name, None)
-        if result is None:
-            result = self.FindPollingSchemaByAlias(name)
-            if result is None:
-                raise LitGBException("polling schema not found, name = "+name)
-            self.PollingSchemasCacheByAliases[name] = result
-
-        return result   
+        return result  
          
     @ConnectionPool
     def FetchAllPollingSchemas(self, connection=None) -> list[PollingSchemaInfo]:     
@@ -810,3 +798,30 @@ class DbWorkerService:
             result[row[0]].append(FileBallot(row[1], row[2]))
 
         return result
+    
+    @ConnectionPool
+    def SelectCompetitionResults(self, comp_id:int, connection=None) -> list[PollingFileResults]:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("SELECT result_place, file_id, result_score FROM competition_member WHERE comp_id = %s", (comp_id, ))
+        rows = ps_cursor.fetchall()        
+        result:list[PollingFileResults] = []
+
+        for row in rows:
+            result.append(PollingFileResults(row[0], row[1], row[2]))
+
+        return result
+    
+    @ConnectionPool
+    def SetFileResults(self, comp_id:int, file_id:int, score:int, position:int, connection=None) -> PollingFileResults:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("UPDATE competition_member SET result_score = %s, result_place = %s WHERE comp_id = %s AND file_id = %s", (score, position, comp_id, file_id))
+        connection.commit()
+        return PollingFileResults(position, file_id, score)
+    
+    @ConnectionPool
+    def SetPollingSchema(self, comp_id:int, polling_scheme:int, connection=None) -> CompetitionInfo:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("UPDATE competition SET polling_scheme = %s WHERE id = %s", (polling_scheme, comp_id))
+        connection.commit()
+
+        return self.FindCompetition(comp_id)

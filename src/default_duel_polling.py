@@ -10,9 +10,12 @@ class DefaultDuelPolling(ICompetitionPolling):
     Name:str = "default_duel"
     MenuQueryRegex = re.compile("vote:(\\d+)")
 
-    def __init__(self, db:DbWorkerService, comp_worker:CompetitionWorker):
-        ICompetitionPolling.__init__(self, db)
+    def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo, comp_worker:CompetitionWorker):
+        ICompetitionPolling.__init__(self, db, schema_config)
         self.CompWorker = comp_worker
+
+    def GetMinimumMemberCount(self) -> int:
+        return 2    
 
     @staticmethod
     def MakeQueryString(comp_id:int, query:str) -> str:

@@ -1,5 +1,5 @@
 from competition_worker import CompetitionWorker
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo, PollingFileResults
 import logging
 from telegram.ext import ContextTypes
 from litgb_exception import LitGBException
@@ -8,7 +8,7 @@ from utils import DatetimeToString
 from file_service import FileService
 from file_storage import FileStorage
 
-from competition_polling import ICompetitionPolling
+from competition_polling import ICompetitionPolling, PollingResults
 from default_duel_polling import DefaultDuelPolling
 
 class CompetitionService(CompetitionWorker, FileService):
@@ -16,8 +16,11 @@ class CompetitionService(CompetitionWorker, FileService):
         CompetitionWorker.__init__(self, db)
         FileService.__init__(self, file_stor)
 
-        self.PollingHandlers: dict[str, ICompetitionPolling] = {}
-        self.PollingHandlers[DefaultDuelPolling.Name] = DefaultDuelPolling(self.Db, self)      
+        self.PollingHandlers: dict[int, ICompetitionPolling] = {}
+        poll_schemas = self.Db.FetchAllPollingSchemas()
+        for poll_schema in poll_schemas:
+            if poll_schema.HandlerName == DefaultDuelPolling.Name:        
+                self.PollingHandlers[poll_schema.Id] = DefaultDuelPolling(self.Db, poll_schema, self)      
 
     async def ReportCompetitionStateToAttachedChat(self, 
             comp:CompetitionInfo, 
@@ -154,29 +157,80 @@ class CompetitionService(CompetitionWorker, FileService):
 
         await context.bot.send_message(comp.ChatId, message_text)                 
 
+
+    async def ProcessHalfWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
+        self.Db.IncreaseUserWins(user.Id)
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" полупобедил в конкурсе #"+str(comp.Id))
+
     async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
-    async def ShowBallots(self, comp:CompetitionInfo):
-        pass
+    async def ShowBallots(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+        pass    
 
-    async def ShowResults(self, comp:CompetitionInfo):
-        polling_handler = self.GetCompeitionPollingHandler(comp)
-        comp_results = polling_handler.GetPollingResults(comp)
+    async def ShowResults(self, comp:CompetitionInfo, comp_results:PollingResults, context: ContextTypes.DEFAULT_TYPE): 
+        comp_results.RatingTable.sort(key=lambda x: x.RatingPos)
+        await context.bot.send_message(comp.ChatId, "ShowResults... under constructing")
+
+    async def ProcessResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
+
+        comp_results = None        
+        if comp.IsClosedType():            
+            if comp_stat.SubmittedMemberCount() == 1:
+                winner = comp_stat.GetSubmittedMembers()[0]
+                winner_files = comp_stat.SubmittedFiles[winner]
+                polling_results:list[PollingFileResults] = []
+                for f in winner_files:
+                    polling_results.append(self.Db.SetFileResults(comp.Id, f.Id, 1, 1))
+                await self.ProcessWinnedMember(comp, winner, context)                
+
+                comp_results = PollingResults([winner.Id], [], [], polling_results)
+
+        if comp_results is None:
+            polling_handler = self.GetCompetitionPollingHandler(comp)
+            comp_results = polling_handler.GetPollingResults(comp)
+            for winner_id in comp_results.Winners:
+                await self.ProcessWinnedMember(comp, comp_stat.GetUserInfo(winner_id), context)
+            for half_winner_id in comp_results.HalfWinners:
+                await self.ProcessHalfWinnedMember(comp, comp_stat.GetUserInfo(half_winner_id), context)                  
+            for loser_id in comp_results.Winners:
+                await self.ProcessLosedMember(comp, comp_stat.GetUserInfo(loser_id), context)            
+
+            for file_res in comp_results.RatingTable:    
+                self.Db.SetFileResults(comp.Id, file_res.FileId, file_res.Score, file_res.RatingPos)
+
+        await self.ShowResults(comp, comp_results, context)
+
+        
 
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         comp = self.Db.FinishCompetition(comp.Id)
         await self.ReportCompetitionStateToAttachedChat(comp, context)
 
-        if comp.IsClosedType():
-            if comp_stat.SubmittedMemberCount() == 1:
-                await self.ProcessWinnedMember(comp, comp_stat.GetSubmittedMembers()[0], context)
 
-        await self.ShowResults()
+        await self.ProcessResults(comp, comp_stat, context)
         await self.ShowFileAuthors(comp, comp_stat, context)
-        await self.ShowBallots()
+        await self.ShowBallots(comp, context)
         
+    def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling:        
+        for handler in self.PollingHandlers.values():
+            if comp.IsOpenType() == handler.Config.ForOpenType:
+                if comp_stat.GetSubmittedMembers() >= handler.GetMinimumMemberCount():
+                    new_comp = self.Db.SetPollingSchema(comp.Id, handler.Config.Id)
+                    comp.PollingScheme = new_comp.PollingScheme
+                    return handler
+
+    async def RecheckPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE): 
+
+        polling_handler = self.GetCompetitionPollingHandler(comp)    
+        if comp_stat.GetSubmittedMembers() < polling_handler.GetMinimumMemberCount():
+            new_polling_handler = self.ChooseNewPollingSchema(comp, comp_stat)
+            if new_polling_handler is None:
+                raise LitGBException("Конкурс не может продолжаться, потому что выбранная схема голосования не подходит для текущего количества участников ("+str(comp_stat.GetSubmittedMembers())+"), а новая схема не была найдена.")
+            message_text = "Для конкурса #"+str(comp.Id)+" установлена новая схема голосования, так как старая схема не подходит для текущего количества участников."
+            message_text+= "\n\nНовая схема голосования: "+new_polling_handler.Config.Title+" (id:"+str(new_polling_handler.Config.Id)+")"
+            await context.bot.send_message(comp.ChatId, message_text)
 
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         if comp.Confirmed is None:
@@ -191,17 +245,18 @@ class CompetitionService(CompetitionWorker, FileService):
             await self.ProcessFailedMembers(comp, context)
 
         comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
-        if self.CheckCompetitionEndCondition(comp, comp_stat):            
-            if comp.IsOpenType():
-                await context.bot.send_message(comp.ChatId, "В конкурсе #"+str(comp.Id)+" слишком мало участников. Голосование лишено смысла")            
-            await self.FinalizeSuccessCompetition(comp, comp_stat, context)
-            return
         
+        if comp.IsClosedType():
+            if comp_stat.GetSubmittedMembers() == 1:                
+                await self.FinalizeSuccessCompetition(comp, comp_stat, context)
+                return
+        
+        await self.RecheckPollingSchema(comp, comp_stat, context)
         await self.AfterPollingStarted(comp, comp_stat, context)
 
     async def CancelCompetitionWithError(self, comp: CompetitionInfo, error:str, context: ContextTypes.DEFAULT_TYPE):
         self.Db.FinishCompetition(comp.Id, True)
-        await self.ReportCompetitionStateToAttachedChat(comp, context) 
+        await self.ReportCompetitionStateToAttachedChat(comp, context, error) 
             
     async def CheckPollingStageStart(self, context: ContextTypes.DEFAULT_TYPE):
         logging.info("CheckPollingStageStart:")
@@ -244,15 +299,14 @@ class CompetitionService(CompetitionWorker, FileService):
         await self.CheckPollingStageStart(context)    
         await self.CheckPollingStageEnd(context)
 
-    def GetPollingHandler(self, poll_type:str) -> ICompetitionPolling:
-        handler = self.PollingHandlers.get(poll_type, None)
+    def GetPollingHandler(self, handler_id:int) -> ICompetitionPolling:
+        handler = self.PollingHandlers.get(handler_id, None)
         if handler is None:
-            raise LitGBException("unknowm polling type (handler not found)")
+            raise LitGBException("unknowm polling handler_id (handler not found)")
         return handler
     
     def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
-        return self.GetPollingHandler(schema.Alias)
+        return self.GetPollingHandler(schema.Id)
     
-    def GetCompeitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:
-        schema_info = self.Db.GetPollingSchema(comp.PollingScheme)
-        return self.GetPollingHandlerFromSchemaInfo(schema_info)    
+    def GetCompetitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:        
+        return self.GetPollingHandler(comp.PollingScheme)    

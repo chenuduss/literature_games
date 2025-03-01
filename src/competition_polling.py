@@ -1,21 +1,15 @@
-from db_worker import DbWorkerService, CompetitionInfo, PollingSchemaInfo
+from db_worker import DbWorkerService, CompetitionInfo, PollingSchemaInfo, PollingFileResults
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException
 
-class PollingFileResults:
-    def __init__(self, rating_pos:int, file_id:int, score:int):
-        self.RatingPos = rating_pos
-        self.FileId = file_id
-        self.Score = score
-
 class PollingResults:
-    def __init__(self, winners:list[int], half_winners:list[int], losers:list[int]):
+    def __init__(self, winners:list[int], half_winners:list[int], losers:list[int], table:list[PollingFileResults]):
         self.Winners = winners
         self.HalfWinners = half_winners
         self.Losers = losers
-        self.RatingTable:list[PollingFileResults] = []
+        self.RatingTable = table
 
 class ICompetitionPolling:
     PollingMenuQueryRegex = re.compile("poll:(\\S+):(\\d+):(\S*)")
@@ -37,8 +31,12 @@ class ICompetitionPolling:
     def MakeMenuQuery(polling_type:str, comp_id:int, query:str) -> str:
         return "poll:"+polling_type+":"+str(comp_id)+":"+query
     
-    def __init__(self, db:DbWorkerService):
-        self.Db = db    
+    def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo):
+        self.Db = db
+        self.Config = schema_config
+
+    def GetMinimumMemberCount(self) -> int:
+        raise NotImplementedError("ICompetitionPolling.GetMinimumMemberCount")
     
     @staticmethod
     def MakePollingMessageHeader(comp:CompetitionInfo, schema:PollingSchemaInfo) -> str:
