@@ -84,7 +84,7 @@ class LitGBot(CompetitionService):
         self.MinimumPollingStageInterval = timedelta(minutes=defaults.get('minimum_polling_stage_min', 60*2))
 
         self.DefaultMinTextSize = defaults.get('minimum_text_size', 12500)
-        self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)        
+        self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)
 
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
         self.MaxAllowedCompetitionDeadlineFutureInterval = timedelta(days=40)
