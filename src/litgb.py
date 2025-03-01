@@ -174,6 +174,7 @@ class LitGBot(CompetitionService):
         result += "\n/attach_competition <id> - привязывание конкурса к групповому чату"
         result += "\n/competition <id> - карточка конкурса"
         result += "\n/competition_polling <id> - карточка голосования конкурса"
+        result += "\n/competition_files <id> - файлы конкурса"
         result += "\n/current_competition - карточка конкурса текущего чата в стадии голосования"
         result += "\n/current_polling - состояние голосования конкурса текущего чата в стадии голосования"
         result += "\n/current_files - получение файлов конкурса текущего чата в стадии голосования"        
