@@ -20,8 +20,10 @@ class PollingResults:
 class ICompetitionPolling:
     PollingMenuQueryRegex = re.compile("poll:(\\S+):(\\d+):(\S*)")
 
-    def __init__(self, db:DbWorkerService):
-        self.Db = db
+
+    @staticmethod
+    def GetMenuPattern() -> str:
+        return "poll:\\S+:\\d+:\S*"    
 
     @staticmethod
     def ParsePollingMenuQuery(query:str) -> tuple[str, int, str]:
@@ -34,10 +36,9 @@ class ICompetitionPolling:
     @staticmethod
     def MakeMenuQuery(polling_type:str, comp_id:int, query:str) -> str:
         return "poll:"+polling_type+":"+str(comp_id)+":"+query
-
-    @staticmethod
-    def GetMenuPattern() -> str:
-        return "poll:\\S+:\\d+:\S*"
+    
+    def __init__(self, db:DbWorkerService):
+        self.Db = db    
     
     @staticmethod
     def MakePollingMessageHeader(comp:CompetitionInfo, schema:PollingSchemaInfo) -> str:
