@@ -153,6 +153,12 @@ class CompetitionService(CompetitionWorker, FileService):
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
+    async def ShowBallots(self, comp:CompetitionInfo):
+        pass
+
+    async def ShowResults(self, comp:CompetitionInfo):
+        pass
+
     async def FinalizeSuccessCompetition(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
         comp = self.Db.FinishCompetition(comp.Id)
         await self.ReportCompetitionStateToAttachedChat(comp, context)
@@ -161,7 +167,9 @@ class CompetitionService(CompetitionWorker, FileService):
             if comp_stat.SubmittedMemberCount() == 1:
                 await self.ProcessWinnedMember(comp, comp_stat.GetSubmittedMembers()[0], context)
 
-        await self.ShowFileAuthors(comp, comp_stat, context)        
+
+        await self.ShowFileAuthors(comp, comp_stat, context)
+        await self.ShowBallots()
         
 
     async def SwitchToPollingStage(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):

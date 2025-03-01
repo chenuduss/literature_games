@@ -341,7 +341,7 @@ class LitGBot(CompetitionService):
 
             logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" fb2 section file size "+str(file_size)+", text size: "+str(text_size)+". Insert to DB success") 
 
-            reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ MakeHumanReadableAmount(text_size)
+            reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ str(text_size)+" знаков"
             if not (deleted_file_name is None):
                 reply_text += "\nБыл удалён файл "+ deleted_file_name
             await update.message.reply_text(reply_text)      
@@ -917,7 +917,7 @@ class LitGBot(CompetitionService):
         logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
         self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/results")  
-        comp = self.FindFinishedCompetition(comp_id)
+        comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
         await update.message.reply_text("В разработке")
         

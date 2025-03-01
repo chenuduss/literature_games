@@ -34,6 +34,13 @@ class CompetitionWorker:
         
         return comp
     
+    def FindFinishedSuccessCompetition(self, comp_id:int) -> CompetitionInfo:
+        comp = self.FindFinishedCompetition(comp_id)
+        if comp.Canceled:
+            raise LitGBException("🛑 Конкурс был отменён") 
+        
+        return comp    
+    
     @staticmethod
     def CheckCompetitionInPollingStage(comp:CompetitionInfo) -> str:
         if not (comp.Finished is None):

@@ -10,7 +10,7 @@
     "file_storage": {
         "directory": "/tmp",
         "max_file_size": 256000,
-        "files_total_size_limit": 256000000
+        "files_total_size_limit_mb": 256
     },
     "admin": {
         "user_ids":[1, 2, 3]

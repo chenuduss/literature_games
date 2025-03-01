@@ -51,4 +51,4 @@ class ICompetitionPolling:
         raise NotImplementedError("ICompetitionPolling.MenuHandler")
     
     def GetPollingResults(self, comp:CompetitionInfo) -> PollingResults:
-        raise NotImplementedError("ICompetitionPolling.GetPollingResults")
+        raise NotImplementedError("ICompetitionPolling.GetPollingResults")   
