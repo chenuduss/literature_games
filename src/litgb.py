@@ -1423,7 +1423,8 @@ class LitGBot(CompetitionService):
 
     async def polling_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[polling_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-
+        
+        self.Db.EnsureUserExists(update.effective_user.id)
         handler_id, comp_id, custom_type_data = ICompetitionPolling.ParsePollingMenuQuery(update.query.data)
            
         await self.GetPollingHandler(handler_id).MenuHandler(update, context, comp_id, custom_type_data)
