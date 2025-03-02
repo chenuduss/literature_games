@@ -13,14 +13,19 @@ NotAllowedText = [
     re.compile("</\\s*section\\s*>"),
     re.compile("<\\s*p\\s*>"),
     re.compile("</\\s*p\\s*>"),
-    re.compile("<\\s*image")    
+    re.compile("<\\s*image"),
+    re.compile("<\\s*a\\s+"),
+    re.compile("</\\s*a\\s*>")
 ]
 
 IngoredOnCountingText = [
     re.compile("<\\s*emphasis\\s*>"),
     re.compile("</\\s*emphasis\\s*>"),
     re.compile("<\\s*strong\\s*>"),
-    re.compile("</\\s*strong\\s*>")
+    re.compile("</\\s*strong\\s*>"),
+    re.compile("<empty-line/>"),
+    re.compile("<\\s*epigraph\\s*>"),
+    re.compile("</\\s*epigraph\\s*>")    
 ]
 
 
