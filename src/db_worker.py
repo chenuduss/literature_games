@@ -353,9 +353,9 @@ class DbWorkerService:
         return rows[0][0]    
 
     @ConnectionPool    
-    def GetNotLockedFileListBefore(self, loaded_before:datetime, connection=None) -> list[FileInfo]:
+    def GetNotLockedFileListBefore(self, loaded_before:datetime, limit:int, connection=None) -> list[FileInfo]:
         ps_cursor = connection.cursor()          
-        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE ts < %s AND file_path IS NOT NULL LIMIT %s", (loaded_before, ))        
+        ps_cursor.execute("SELECT id, title, file_size, text_size, locked, ts, file_path, user_id FROM uploaded_file WHERE ts < %s AND file_path IS NOT NULL LIMIT %s", (loaded_before, limit))
         rows = ps_cursor.fetchall()
 
         result = []

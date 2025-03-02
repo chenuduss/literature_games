@@ -268,7 +268,7 @@ class LitGBot(CompetitionService):
     def DeleteOldFiles(self) -> None:
 
         try:
-            file_list = self.Db.GetNotLockedFileListBefore(datetime.now(timezone.utc) - self.FileStorage.RetentionPeriod)
+            file_list = self.Db.GetNotLockedFileListBefore(datetime.now(timezone.utc) - self.FileStorage.RetentionPeriod, 300)
             for file in file_list:                
                 self.DeleteFile(file)
         except BaseException as ex:
