@@ -147,11 +147,11 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         if comp.IsClosedType():
             for user, files in comp_stat.SubmittedFiles.items():                   
                 for f in files:
-                    message_text +=  user.NameForMessage() + ": " + f.NameForMessage()
+                    message_text += "\n" + user.NameForMessage() + ": " + f.NameForMessage()
         else:            
             for user, files in comp_stat.SubmittedFiles.items():                    
                 for f in files:
-                    message_text +=  user.NameForMessage() + ": " + f.NameForMessage()            
+                    message_text += "\n" + user.NameForMessage() + ": " + f.NameForMessage()            
             message_text += "\n\nВопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
 
         await context.bot.send_message(comp.ChatId, message_text)                 
