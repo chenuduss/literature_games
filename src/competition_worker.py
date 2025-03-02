@@ -1,18 +1,22 @@
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, ChatInfo
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo
 from litgb_exception import LitGBException, CompetitionNotFound
 from datetime import datetime, timezone, timedelta
+from competition_polling import ICompetitionPolling
+
 
 class CompetitionFullInfo:
-    def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None = None, chat:ChatInfo|None = None): 
+    def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None, chat:ChatInfo|None, polling_handler:ICompetitionPolling|None): 
         self.Comp = comp
         self.Stat = stat
         self.Chat = chat
+        self.PollingHandler = polling_handler
 
 class CompetitionWorker:
     def __init__(self, db:DbWorkerService):
         self.Db = db
         self.CompetitionsListDefaultFutureInterval = timedelta(days=40)
-        self.CompetitionsListDefaultPastInterval = timedelta(days=3)        
+        self.CompetitionsListDefaultPastInterval = timedelta(days=3)
+        self.PollingHandlers: dict[int, ICompetitionPolling] = {}   
                  
     def FindCompetition(self, comp_id:int) -> CompetitionInfo:     
         comp = self.Db.FindCompetition(comp_id)
@@ -155,7 +159,8 @@ class CompetitionWorker:
         chat = None
         if not (comp.ChatId is None):
             chat = self.Db.FindChat(comp.ChatId)
-        return CompetitionFullInfo(comp, stat, chat)            
+
+        return CompetitionFullInfo(comp, stat, chat, self.GetCompetitionPollingHandler(comp))            
     
     def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
         if unreg:
@@ -209,3 +214,15 @@ class CompetitionWorker:
         
         
         raise LitGBException("unknown competitions list type: "+list_type) 
+    
+    def GetPollingHandler(self, handler_id:int) -> ICompetitionPolling:
+        handler = self.PollingHandlers.get(handler_id, None)
+        if handler is None:
+            raise LitGBException("unknowm polling handler_id (handler not found)")
+        return handler
+    
+    def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
+        return self.GetPollingHandler(schema.Id)
+    
+    def GetCompetitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:        
+        return self.GetPollingHandler(comp.PollingScheme)    

@@ -5,6 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Messa
 import re
 from litgb_exception import LitGBException
 from competition_worker import CompetitionWorker
+from utils import MakeFileTitleForButtonCaption
 
 class DefaultDuelPolling(ICompetitionPolling):
     Name:str = "default_duel"
@@ -38,20 +39,27 @@ class DefaultDuelPolling(ICompetitionPolling):
                     msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.Title
             else:
                 msgtext += "\n\nВы ещё не голосовали в этом конкурсе"
+        return msgtext
 
-    def MakeKeyboard(self, comp:CompetitionInfo) -> InlineKeyboardMarkup:
+    def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
+        if not comp_stat.IsUserSubmitted(update.effective_chat.id):
+            for files in comp_stat.SubmittedFiles.values():
+                for f in files:
+                    keyboard.append([InlineKeyboardButton("👍 #"+str(f.Id)+": "+MakeFileTitleForButtonCaption(f.Title), callback_data=self.MakeQueryString(comp.Id, "vote:"+str(f.Id)) )]) 
+
         InlineKeyboardMarkup(keyboard)
 
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        schema = self.Db.GetPollingSchema(comp.PollingScheme)
-        msgtext = self.GetPollingMessageText(comp, schema, update)
+        comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
+
+        msgtext = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
 
         
         if send_reply:
-            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(comp))        
+            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(comp))
+            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))
 
     @staticmethod
     def ParseMenuQuery(query:str) -> int:

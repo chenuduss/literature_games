@@ -1,4 +1,4 @@
-from competition_worker import CompetitionWorker
+from competition_worker_implementation import CompetitionWorkerImplementation
 from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo, PollingFileResults, UserStub
 import logging
 from telegram.ext import ContextTypes
@@ -9,18 +9,12 @@ from file_service import FileService
 from file_storage import FileStorage
 
 from competition_polling import ICompetitionPolling, PollingResults
-from default_duel_polling import DefaultDuelPolling
 
-class CompetitionService(CompetitionWorker, FileService):
+
+class CompetitionService(CompetitionWorkerImplementation, FileService):
     def __init__(self, db:DbWorkerService, file_stor:FileStorage):
-        CompetitionWorker.__init__(self, db)
-        FileService.__init__(self, file_stor)
-
-        self.PollingHandlers: dict[int, ICompetitionPolling] = {}
-        poll_schemas = self.Db.FetchAllPollingSchemas()
-        for poll_schema in poll_schemas:
-            if poll_schema.HandlerName == DefaultDuelPolling.Name:        
-                self.PollingHandlers[poll_schema.Id] = DefaultDuelPolling(self.Db, poll_schema, self)      
+        CompetitionWorkerImplementation.__init__(self, db)
+        FileService.__init__(self, file_stor)  
 
     async def ReportCompetitionStateToAttachedChat(self, 
             comp:CompetitionInfo, 
@@ -298,16 +292,3 @@ class CompetitionService(CompetitionWorker, FileService):
     async def CheckCompetitionStates(self, context: ContextTypes.DEFAULT_TYPE):
         await self.CheckPollingStageStart(context)    
         await self.CheckPollingStageEnd(context)
-
-    def GetPollingHandler(self, handler_id:int) -> ICompetitionPolling:
-        handler = self.PollingHandlers.get(handler_id, None)
-        if handler is None:
-            raise LitGBException("unknowm polling handler_id (handler not found)")
-        return handler
-    
-    def GetPollingHandlerFromSchemaInfo(self, schema:PollingSchemaInfo)-> ICompetitionPolling:
-        return self.GetPollingHandler(schema.Id)
-    
-    def GetCompetitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:        
-        return self.GetPollingHandler(comp.PollingScheme)
-
