@@ -2,6 +2,7 @@
 from competition_worker import CompetitionWorker
 from default_duel_polling import DefaultDuelPolling
 from default_triel_polling import DefaultTrielPolling
+from default_closed_4_polling import DefaultClosed4Polling
 from db_worker import DbWorkerService
 
 class CompetitionWorkerImplementation(CompetitionWorker):
