@@ -15,3 +15,5 @@ class CompetitionWorkerImplementation(CompetitionWorker):
                 self.PollingHandlers[poll_schema.Id] = DefaultDuelPolling(self.Db, poll_schema, self)
             elif poll_schema.HandlerName == DefaultTrielPolling.Name:
                 self.PollingHandlers[poll_schema.Id] = DefaultTrielPolling(self.Db, poll_schema, self)
+            elif poll_schema.HandlerName == DefaultClosed4Polling.Name:
+                self.PollingHandlers[poll_schema.Id] = DefaultClosed4Polling(self.Db, poll_schema, self)    
