@@ -1,5 +1,5 @@
 from competition_polling import ICompetitionPolling, PollingResults
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, PollingFileResults
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, PollingFileResults, FileBallot
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
@@ -10,6 +10,7 @@ from utils import MakeFileTitleForButtonCaption
 class DefaultDuelPolling(ICompetitionPolling):
     Name:str = "default_duel"
     MenuQueryRegex = re.compile("vote:(\\d+)")
+    MaxBallotsPerPolling = 500
 
     def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo, comp_worker:CompetitionWorker):
         ICompetitionPolling.__init__(self, db, schema_config)
@@ -24,12 +25,14 @@ class DefaultDuelPolling(ICompetitionPolling):
     def MakeQueryString(comp_id:int, query:str) -> str:
         return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
     
-    def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> str:
+    def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, dict[int, list[FileBallot]]]:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, poll_schema)
 
         competition_ballots = self.Db.SelectCompetitionBallots(comp.Id)
 
         msgtext += "\n\nКол-во проголосовавших: "+str(len(competition_ballots.keys()))
+        if len(competition_ballots) >= self.MaxBallotsPerPolling:
+            msgtext += "\n❗️ Достигнут лимит количества проголосовавших!"
         
         if update.effective_user.id == update.effective_chat.id:
             user_ballots = competition_ballots.get(update.effective_user.id, [])
@@ -41,7 +44,7 @@ class DefaultDuelPolling(ICompetitionPolling):
                     msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.Title
             else:
                 msgtext += "\n\nВы ещё не голосовали в этом конкурсе"
-        return msgtext
+        return (msgtext, competition_ballots)
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
@@ -62,13 +65,16 @@ class DefaultDuelPolling(ICompetitionPolling):
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
 
-        msgtext = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
+        msgtext, ballots = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
 
-        
+        keybd =InlineKeyboardMarkup([])
+        if len(ballots)< self.MaxBallotsPerPolling:
+            keybd = self.MakeKeyboard(update, comp, comp_info.Stat)
+            
         if send_reply:
-            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))        
+            await update.message.reply_text(msgtext, reply_markup=keybd)        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))
+            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=keybd)
 
     @staticmethod
     def ParseMenuQuery(query:str) -> int:
