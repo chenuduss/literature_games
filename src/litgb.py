@@ -141,9 +141,9 @@ class LitGBot(CompetitionService):
         self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))        
         user_info = self.Db.FindUser(update.effective_user.id)
         stat_message = "Статистика пользователя "+user_info.Title
-        stat_message += "\nПобед: "+str(user_info.Wins)
-        stat_message += "\nПолупобед: "+str(user_info.HalfWins)
-        stat_message += "\nПоражений: "+str(user_info.Losses)
+        stat_message += "\n🏆 Побед: "+str(user_info.Wins)
+        stat_message += "\n🫥 Полупобед: "+str(user_info.HalfWins)
+        stat_message += "\n👎 Поражений: "+str(user_info.Losses)
 
         await update.message.reply_text(stat_message)
     
