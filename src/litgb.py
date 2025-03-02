@@ -933,9 +933,15 @@ class LitGBot(CompetitionService):
 
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_files")  
         comp = self.FindCompetitionInPollingState(comp_id)
-        if update.effective_chat.id != comp.ChatId:
-            raise LitGBException("Команду можно выполнить только в чате, к которому привязан конкурс")
         comp_info = self.GetCompetitionFullInfo(comp)
+        if update.effective_user.id != update.effective_chat.id:
+            if update.effective_chat.id != comp.ChatId:
+                raise LitGBException("Команду можно выполнить только в чате, к которому привязан конкурс")
+        else:
+            if not comp_info.Stat.IsUserSubmitted(update.effective_user.id):
+                raise LitGBException("Команду может только участник конкурса")
+
+        
         await self.SendSubmittedFiles(comp.ChatId, comp_info.Stat, context)
         await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
 
@@ -1401,9 +1407,9 @@ class LitGBot(CompetitionService):
     async def polling_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[polling_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
 
-        poll_type, comp_id, custom_type_data = ICompetitionPolling.ParsePollingMenuQuery(update.query.data)
+        handler_id, comp_id, custom_type_data = ICompetitionPolling.ParsePollingMenuQuery(update.query.data)
            
-        await self.GetPollingHandler(poll_type).MenuHandler(update, context, comp_id, custom_type_data)
+        await self.GetPollingHandler(handler_id).MenuHandler(update, context, comp_id, custom_type_data)
         
 
 if __name__ == '__main__':    

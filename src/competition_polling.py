@@ -12,18 +12,18 @@ class PollingResults:
         self.RatingTable = table
 
 class ICompetitionPolling:
-    PollingMenuQueryRegex = re.compile("poll:(\\S+):(\\d+):(\S*)")
+    PollingMenuQueryRegex = re.compile("poll:(\\d+):(\\d+):(\S*)")
 
 
     @staticmethod
     def GetMenuPattern() -> str:
-        return "poll:\\S+:\\d+:\S*"    
+        return "poll:\\d+:\\d+:\S*"    
 
     @staticmethod
-    def ParsePollingMenuQuery(query:str) -> tuple[str, int, str]:
+    def ParsePollingMenuQuery(query:str) -> tuple[int, int, str]:
         try:
             m = ICompetitionPolling.PollingMenuQueryRegex.match(query)
-            return (m.group(1), int(m.group(2)), m.group(3))
+            return (int(m.group(1)), int(m.group(2)), m.group(3))
         except BaseException as ex:
             raise LitGBException("invalid polling menu query")   
 
