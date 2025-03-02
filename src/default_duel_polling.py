@@ -1,5 +1,5 @@
 from competition_polling import ICompetitionPolling, PollingResults
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, PollingFileResults, FileBallot
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, UserStub, PollingSchemaInfo, PollingFileResults, FileBallot
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
@@ -36,7 +36,7 @@ class DefaultDuelPolling(ICompetitionPolling):
         
         if update.effective_user.id == update.effective_chat.id:
             competition_ballots = self.Db.SelectCompetitionBallots(comp.Id)
-            user_ballots = competition_ballots.get(update.effective_user.id, [])
+            user_ballots = competition_ballots.get(UserStub(update.effective_user.id), [])
             if len(user_ballots) > 0:
                 file = self.Db.FindFile(user_ballots[0].FileId)
                 if file is None:

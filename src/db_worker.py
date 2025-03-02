@@ -814,18 +814,19 @@ class DbWorkerService:
         connection.commit()
 
     @ConnectionPool
-    def SelectCompetitionBallots(self, comp_id:int, connection=None) -> dict[int, list[FileBallot]]:
+    def SelectCompetitionBallots(self, comp_id:int, connection=None) -> dict[UserInfo, list[FileBallot]]:
         ps_cursor = connection.cursor() 
-        ps_cursor.execute("SELECT user_id, file_id, points FROM competition_ballot WHERE comp_id = %s", (comp_id, ))
+        ps_cursor.execute("SELECT u.id, u.title, cb.file_id, cb.points FROM competition_ballot as cb INNER JOIN sd_user AS u ON cb.user_id = u.id  WHERE comp_id = %s", (comp_id, ))
         rows = ps_cursor.fetchall()        
-        result:dict[int, list[FileBallot]] = {}
+        result:dict[UserInfo, list[FileBallot]] = {}
 
         for row in rows:
-            
-            if not (row[0] in result):
-                result[row[0]] = []
+            usr = UserInfo(row[0], row[1])
 
-            result[row[0]].append(FileBallot(row[1], row[2]))
+            if not (usr in result):
+                result[usr] = []
+
+            result[usr].append(FileBallot(row[2], row[3]))
 
         return result
     

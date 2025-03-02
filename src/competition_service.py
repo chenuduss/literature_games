@@ -160,18 +160,19 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
-    async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[int, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE):
-        pass
 
-    async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[int, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE):        
-        pass
+    async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):
+        await context.bot.send_message(chat_id, "В разработке")
 
-    async def ShowBallots(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
+    async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):        
+        await context.bot.send_message(chat_id, "В разработке")
+
+    async def ShowBallots(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE, chat_id:int):
         ballots = self.Db.SelectCompetitionBallots(comp.Id)
         if comp.IsOpenType():
-            await self.ShowBallotsOfOpenCompetition(comp, ballots, context)
+            await self.ShowBallotsOfOpenCompetition(comp, ballots, context, chat_id)
         else:
-            await self.ShowBallotsOfClosedCompetition(comp, ballots, context)
+            await self.ShowBallotsOfClosedCompetition(comp, ballots, context, chat_id)
         
 
     async def ShowResults(self, 
@@ -227,7 +228,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
 
         await self.ProcessResults(comp, comp_stat, context)
         await self.ShowFileAuthors(comp, comp_stat, context)
-        await self.ShowBallots(comp, context)
+        await self.ShowBallots(comp, context, comp.ChatId)
         
     def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling:        
         member_count = comp_stat.SubmittedMemberCount()
