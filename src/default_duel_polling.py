@@ -113,11 +113,17 @@ class DefaultDuelPolling(ICompetitionPolling):
         f1 = PollingFileResults(0, file_ids[0], file_scores[file_ids[0]])
         f2 = PollingFileResults(0, file_ids[1], file_scores[file_ids[1]])
         if f1.Score > f2.Score:
-            return PollingResults([f1_author], [], [f2_author], )
+            f1.RatingPos = 1
+            f2.RatingPos = 2
+            return PollingResults([f1_author], [], [f2_author], [f1,f2])
         elif f1.Score < f2.Score:
-            return PollingResults([f2_author], [], [f1_author], )
+            f1.RatingPos = 2
+            f2.RatingPos = 1
+            return PollingResults([f2_author], [], [f1_author], [f1,f2])
         else:
-            return PollingResults([], [f1_author, f2_author], [], )
+            f1.RatingPos = 1
+            f2.RatingPos = 1
+            return PollingResults([], [f1_author, f2_author], [], [f1,f2])
 
     def ForOpenType(self) -> bool:
         return False
