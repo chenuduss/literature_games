@@ -81,7 +81,9 @@ class LitGBot(CompetitionService):
             self.DefaultPollingStageTimedelta = timedelta(minutes=defaults['default_polling_stage_min'])
         else:
             self.DefaultPollingStageTimedelta = timedelta(hours=defaults.get('default_polling_stage_h', 48))
+
         self.MinimumPollingStageInterval = timedelta(minutes=defaults.get('minimum_polling_stage_min', 60*2))
+        self.MaximumPollingStageInterval = timedelta(hours=defaults.get('maximum_polling_stage_h', 480))
 
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
         self.MaxAllowedCompetitionDeadlineFutureInterval = timedelta(days=40)
@@ -681,6 +683,8 @@ class LitGBot(CompetitionService):
         d2 = tz.localize(d2) 
         if d2 <= d1 + self.MinimumPollingStageInterval:
             raise LitGBException("Слишком короткий период голосования")
+        if d2 > d1 + self.MaximumPollingStageInterval:
+            raise LitGBException("Слишком длинный период голосования")        
         
         return (d1, d2)
 

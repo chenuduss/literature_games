@@ -177,12 +177,14 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
 
     async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):
         msg_header = ""
+        current_msg = ""
 
         blts = self.ConvertBallots(ballots)
         for file_id, uballots in blts.items():        
             current_msg = ""
-            
-        await context.bot.send_message(chat_id, "В разработке")
+
+        if len(current_msg) > 0:
+            await context.bot.send_message(chat_id, msg_header+current_msg)
 
     async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):        
         await context.bot.send_message(chat_id, "В разработке")
