@@ -88,6 +88,7 @@ class DefaultDuelPolling(ICompetitionPolling):
             await query.answer("Участникам нельзя голосовать в дуэли")
             return
 
+        self.Db.EnsureUserExists(update.effective_user.id)
         self.Db.DeleteUserBallots(comp.Id, update.effective_user.id)
         self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])
         
