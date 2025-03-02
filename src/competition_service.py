@@ -216,7 +216,7 @@ class CompetitionService(CompetitionWorker, FileService):
     def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling:        
         for handler in self.PollingHandlers.values():
             if comp.IsOpenType() == handler.Config.ForOpenType:
-                if comp_stat.GetSubmittedMembers() >= handler.GetMinimumMemberCount():
+                if comp_stat.SubmittedMemberCount() >= handler.GetMinimumMemberCount():
                     new_comp = self.Db.SetPollingSchema(comp.Id, handler.Config.Id)
                     comp.PollingScheme = new_comp.PollingScheme
                     return handler
@@ -224,10 +224,10 @@ class CompetitionService(CompetitionWorker, FileService):
     async def RecheckPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE): 
 
         polling_handler = self.GetCompetitionPollingHandler(comp)    
-        if comp_stat.GetSubmittedMembers() < polling_handler.GetMinimumMemberCount():
+        if comp_stat.SubmittedMemberCount() < polling_handler.GetMinimumMemberCount():
             new_polling_handler = self.ChooseNewPollingSchema(comp, comp_stat)
             if new_polling_handler is None:
-                raise LitGBException("Конкурс не может продолжаться, потому что выбранная схема голосования не подходит для текущего количества участников ("+str(comp_stat.GetSubmittedMembers())+"), а новая схема не была найдена.")
+                raise LitGBException("Конкурс не может продолжаться, потому что выбранная схема голосования не подходит для текущего количества участников ("+str(comp_stat.SubmittedFileCount())+"), а новая схема не была найдена.")
             message_text = "Для конкурса #"+str(comp.Id)+" установлена новая схема голосования, так как старая схема не подходит для текущего количества участников."
             message_text+= "\n\nНовая схема голосования: "+new_polling_handler.Config.Title+" (id:"+str(new_polling_handler.Config.Id)+")"
             await context.bot.send_message(comp.ChatId, message_text)
@@ -247,7 +247,7 @@ class CompetitionService(CompetitionWorker, FileService):
         comp_stat = self.Db.RemoveMembersWithoutFiles(comp.Id)
         
         if comp.IsClosedType():
-            if comp_stat.GetSubmittedMembers() == 1:                
+            if comp_stat.SubmittedMemberCount() == 1:                
                 await self.FinalizeSuccessCompetition(comp, comp_stat, context)
                 return
         
