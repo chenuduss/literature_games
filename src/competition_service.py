@@ -1,5 +1,5 @@
 from competition_worker_implementation import CompetitionWorkerImplementation
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, FileBallot, PollingFileResults, UserStub
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, FileBallot, PollingFileResults, UserStub, FileInfo
 import logging
 from telegram.ext import ContextTypes
 from litgb_exception import LitGBException
@@ -10,6 +10,11 @@ from file_storage import FileStorage
 
 from competition_polling import ICompetitionPolling, PollingResults
 
+
+class UserBallot:
+    def __init__(self, user:UserInfo, points:int):
+        self.User = user
+        self.Points = points
 
 class CompetitionService(CompetitionWorkerImplementation, FileService):
     def __init__(self, db:DbWorkerService, file_stor:FileStorage):
@@ -160,8 +165,23 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
+    def ConvertBallots(self, src:dict[UserInfo, list[FileBallot]]) -> dict[int, list[UserBallot]]:
+        result:dict[int, list[UserBallot]] = {}
+        for u, ballots in src.items():
+            for fb in ballots:
+                if not (fb.FileId in result):
+                    result[fb.FileId] = []
+                result[fb.FileId].append(UserBallot(u, fb.Points))
+
+        return result
 
     async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):
+        msg_header = ""
+
+        blts = self.ConvertBallots(ballots)
+        for file_id, uballots in blts.items():        
+            current_msg = ""
+            
         await context.bot.send_message(chat_id, "В разработке")
 
     async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):        
