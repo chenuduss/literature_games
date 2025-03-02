@@ -40,6 +40,7 @@ def NormalizeParagraph(par:str) -> str:
     result = result.replace("‐ ", "— ")
     result = result.replace("− ", "— ")
     result = result.replace("– ", "— ")
+    result = result.replace("- ", "— ")
     return result
 
 def MakeParagraph(par:str)->str:
