@@ -36,7 +36,11 @@ def GetParagraphs(doc:docx.Document) -> list[str]:
     return result
 
 def NormalizeParagraph(par:str) -> str:
-    return par.strip(" \t")
+    result = par.strip(" \t")
+    result = result.replace("‐ ", "— ")
+    result = result.replace("− ", "— ")
+    result = result.replace("– ", "— ")
+    return result
 
 def MakeParagraph(par:str)->str:
     return "<p>"+par+"</p>"
