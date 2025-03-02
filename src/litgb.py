@@ -768,18 +768,20 @@ class LitGBot(CompetitionService):
 
         return True
     
-    def ChooseDefaultPollingSchemaForClosed(self, member_count:int) -> PollingSchemaInfo:
-        if member_count == 2:
-            return self.Db.GetPollingSchemaByName("default_duel")
-        elif member_count == 3:
-            return self.Db.GetPollingSchemaByName("default_triel")
-        elif member_count >= 4:
-            return self.Db.GetPollingSchemaByName("default_closed_4")
+    def ChooseDefaultPollingSchemaForOpen(self) -> ICompetitionPolling:        
         
-        raise LitGBException("impossible case (lol 2)")
+        for handler in self.PollingHandlers.values():
+            if handler.Config.ForOpenType:
+                return handler.Config
 
-    def ChooseDefaultPollingSchemaForOpen(self) -> PollingSchemaInfo:
-        return self.Db.GetPollingSchemaByName("default_open")
+                    
+    def ChooseDefaultPollingSchemaForClosed(self, member_count:int) -> PollingSchemaInfo:
+        for handler in self.PollingHandlers.values():
+            if not handler.Config.ForOpenType:
+                if member_count >= handler.GetMinimumMemberCount():
+                    return handler.Config
+                
+        raise LitGBException("default polling schema not found")           
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 

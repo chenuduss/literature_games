@@ -309,4 +309,6 @@ class CompetitionService(CompetitionWorker, FileService):
         return self.GetPollingHandler(schema.Id)
     
     def GetCompetitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:        
-        return self.GetPollingHandler(comp.PollingScheme)    
+        return self.GetPollingHandler(comp.PollingScheme)
+    
+      
