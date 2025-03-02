@@ -153,7 +153,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
 
 
     async def ProcessHalfWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
-        self.Db.IncreaseUserWins(user.Id)
+        self.Db.IncreaseUserHalfWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" полупобедил в конкурсе #"+str(comp.Id))
 
     async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
@@ -163,38 +163,48 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
     async def ShowBallots(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         pass    
 
-    async def ShowResults(self, comp:CompetitionInfo, comp_results:PollingResults, context: ContextTypes.DEFAULT_TYPE): 
-        comp_results.RatingTable.sort(key=lambda x: x.RatingPos)
-        await context.bot.send_message(comp.ChatId, "ShowResults... under constructing")
+    async def ShowResults(self, 
+            comp:CompetitionInfo, 
+            comp_stat:CompetitionStat, 
+            file_results:list[PollingFileResults], 
+            context: ContextTypes.DEFAULT_TYPE,
+            chat_id:int): 
+        
+        file_results.sort(key=lambda x: x.RatingPos)
+        message_text = "Результаты конкурса #"+str(comp.Id)+"\n"
+        for file_info in file_results:
+            finfo = comp_stat.GetFileInfo(file_info.FileId)
+            message_text += "\n№"+str(file_info.RatingPos)+". Баллы "+str(file_info.Score)+": [#"+str(finfo.Id)+"] "+finfo.Title
+
+        await context.bot.send_message(chat_id, message_text)
 
     async def ProcessResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
 
-        comp_results = None        
+        polling_results:list[PollingFileResults]|None = None        
         if comp.IsClosedType():            
             if comp_stat.SubmittedMemberCount() == 1:
                 winner = comp_stat.GetSubmittedMembers()[0]
                 winner_files = comp_stat.SubmittedFiles[winner]
-                polling_results:list[PollingFileResults] = []
+                polling_results = []
                 for f in winner_files:
                     polling_results.append(self.Db.SetFileResults(comp.Id, f.Id, 1, 1))
-                await self.ProcessWinnedMember(comp, winner, context)                
+                await self.ProcessWinnedMember(comp, winner, context)
+                
 
-                comp_results = PollingResults([winner.Id], [], [], polling_results)
-
-        if comp_results is None:
+        if polling_results is None:
             polling_handler = self.GetCompetitionPollingHandler(comp)
-            comp_results = polling_handler.GetPollingResults(comp)
-            for winner_id in comp_results.Winners:
-                await self.ProcessWinnedMember(comp, comp_stat.GetUserInfo(winner_id), context)
-            for half_winner_id in comp_results.HalfWinners:
-                await self.ProcessHalfWinnedMember(comp, comp_stat.GetUserInfo(half_winner_id), context)                  
-            for loser_id in comp_results.Winners:
-                await self.ProcessLosedMember(comp, comp_stat.GetUserInfo(loser_id), context)            
+            comp_results = polling_handler.CalcPollingResults(comp, comp_stat)
+            for winner in comp_results.Winners:
+                await self.ProcessWinnedMember(comp, winner, context)
+            for half_winner in comp_results.HalfWinners:
+                await self.ProcessHalfWinnedMember(comp, half_winner, context)                  
+            for loser in comp_results.Losers:
+                await self.ProcessLosedMember(comp, loser, context)            
 
             for file_res in comp_results.RatingTable:    
                 self.Db.SetFileResults(comp.Id, file_res.FileId, file_res.Score, file_res.RatingPos)
 
-        await self.ShowResults(comp, comp_results, context)
+        await self.ShowResults(comp, comp_stat, polling_results, context, comp.ChatId)
 
         
 
@@ -208,9 +218,11 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         await self.ShowBallots(comp, context)
         
     def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling:        
+        member_count = comp_stat.SubmittedMemberCount()
+
         for handler in self.PollingHandlers.values():
-            if comp.IsOpenType() == handler.Config.ForOpenType:
-                if comp_stat.SubmittedMemberCount() >= handler.GetMinimumMemberCount():
+            if comp.IsOpenType() == handler.ForOpenType():                
+                if (member_count >= handler.GetMinimumMemberCount()) and (member_count <= handler.GetMaximumMemberCount()):
                     new_comp = self.Db.SetPollingSchema(comp.Id, handler.Config.Id)
                     comp.PollingScheme = new_comp.PollingScheme
                     return handler

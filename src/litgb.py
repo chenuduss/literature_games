@@ -141,6 +141,7 @@ class LitGBot(CompetitionService):
         user_info = self.Db.FindUser(update.effective_user.id)
         stat_message = "Статистика пользователя "+user_info.Title
         stat_message += "\nПобед: "+str(user_info.Wins)
+        stat_message += "\nПолупобед: "+str(user_info.HalfWins)
         stat_message += "\nПоражений: "+str(user_info.Losses)
 
         await update.message.reply_text(stat_message)
@@ -196,7 +197,7 @@ class LitGBot(CompetitionService):
         for handler in self.PollingHandlers.values():
             index += 1
             status_msg += "\n\n🔷 "+str(index) +". "+handler.Config.Title
-            status_msg += "\nТип конкурса: "+("открытый" if handler.Config.ForOpenType else "закрытый")
+            status_msg += "\nТип конкурса: "+("открытый" if handler.ForOpenType() else "закрытый")
             status_msg += "\nМинимальное количество участников: "+str(handler.GetMinimumMemberCount())
             status_msg += "\n"+handler.Config.Description
 
@@ -773,14 +774,14 @@ class LitGBot(CompetitionService):
     def ChooseDefaultPollingSchemaForOpen(self) -> ICompetitionPolling:        
         
         for handler in self.PollingHandlers.values():
-            if handler.Config.ForOpenType:
+            if handler.ForOpenType():
                 return handler.Config
 
                     
     def ChooseDefaultPollingSchemaForClosed(self, member_count:int) -> PollingSchemaInfo:
         for handler in self.PollingHandlers.values():
-            if not handler.Config.ForOpenType:
-                if member_count >= handler.GetMinimumMemberCount():
+            if not handler.ForOpenType():
+                if (member_count >= handler.GetMinimumMemberCount()) and (member_count <= handler.GetMaximumMemberCount()):
                     return handler.Config
                 
         raise LitGBException("default polling schema not found")           
@@ -920,7 +921,11 @@ class LitGBot(CompetitionService):
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/results")  
         comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text("В разработке")
+        if not comp_info.Stat.IsUserSubmitted(update.effective_user.id):
+            if comp.ChatId != update.effective_chat.id:
+                raise LitGBException("⛔️ Результаты могут быть выведены только в чате, к которому привязан конкурс, или по запросу одного из участников")
+        results = self.Db.SelectCompetitionResults(comp.Id)
+        await self.ShowResults(comp_info.Comp, comp_info.Stat, results, context, update.effective_chat.id)
 
     async def ballots(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
         logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 

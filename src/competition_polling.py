@@ -1,11 +1,11 @@
-from db_worker import DbWorkerService, CompetitionInfo, PollingSchemaInfo, PollingFileResults
+from db_worker import DbWorkerService, CompetitionInfo, PollingSchemaInfo, PollingFileResults, CompetitionStat, UserInfo
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException
 
 class PollingResults:
-    def __init__(self, winners:list[int], half_winners:list[int], losers:list[int], table:list[PollingFileResults]):
+    def __init__(self, winners:list[UserInfo], half_winners:list[UserInfo], losers:list[UserInfo], table:list[PollingFileResults]):
         self.Winners = winners
         self.HalfWinners = half_winners
         self.Losers = losers
@@ -37,6 +37,8 @@ class ICompetitionPolling:
 
     def GetMinimumMemberCount(self) -> int:
         raise NotImplementedError("ICompetitionPolling.GetMinimumMemberCount")
+    def GetMaximumMemberCount(self) -> int:
+        raise NotImplementedError("ICompetitionPolling.GetMaximumMemberCount")    
     
     @staticmethod
     def MakePollingMessageHeader(comp:CompetitionInfo, schema:PollingSchemaInfo) -> str:
@@ -48,5 +50,8 @@ class ICompetitionPolling:
     async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
         raise NotImplementedError("ICompetitionPolling.MenuHandler")
     
-    def GetPollingResults(self, comp:CompetitionInfo) -> PollingResults:
-        raise NotImplementedError("ICompetitionPolling.GetPollingResults")   
+    def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:
+        raise NotImplementedError("ICompetitionPolling.CalcPollingResults")   
+    
+    def ForOpenType(self) -> bool:
+        raise NotImplementedError("ICompetitionPolling.ForOpenType")   

@@ -179,9 +179,21 @@ class  CompetitionStat:
     
     def GetSubmittedMembers(self) -> list[UserInfo]:
         return list(self.SubmittedFiles.keys())
+     
+    def GetFileInfo(self, id:int) -> FileInfo:
+
+        for fl in self.SubmittedFiles.values():
+            for f in fl:
+                if f.Id == id:
+                    return f
+        return None
     
-    def GetUserInfo(self, id:int) -> UserInfo:
-        raise NotImplementedError("CompetitionStat.GetUserInfo")
+    def GetFileSubmitter(self, id:int) -> UserInfo:
+        for u, fl in self.SubmittedFiles.items():
+            for f in fl:
+                if f.Id == id:
+                    return u
+        return None        
 
 class DbWorkerService:   
     def __init__(self, config:dict):
@@ -255,7 +267,14 @@ class DbWorkerService:
     def IncreaseUserWins(self, user_id:int, connection=None) -> None:        
         ps_cursor = connection.cursor()  
         ps_cursor.execute("UPDATE sd_user SET wins = wins + 1 WHERE id = %s ", (user_id, )) 
-        connection.commit()       
+        connection.commit()  
+
+    @ConnectionPool    
+    def IncreaseUserHalfWins(self, user_id:int, connection=None) -> None:        
+        ps_cursor = connection.cursor()  
+        ps_cursor.execute("UPDATE sd_user SET half_wins = half_wins + 1 WHERE id = %s ", (user_id, )) 
+        connection.commit() 
+             
 
     @ConnectionPool    
     def SetAllUsersFileLimit(self, limit:int,  connection=None) -> int:
@@ -776,7 +795,13 @@ class DbWorkerService:
         if len(rows) > 0: 
             return UserFullInfo(user_id, rows[0][0], rows[0][1], rows[0][2], rows[0][3], rows[0][4])
 
-        return None        
+        return None
+    
+    @ConnectionPool
+    def DeleteUserBallots(self, comp_id:int, user_id:int, connection=None):
+        ps_cursor = connection.cursor()
+        ps_cursor.execute("DELETE FROM competition_ballot WHERE comp_id = %s AND user_id = %s", (comp_id, user_id))         
+        connection.commit()
     
     @ConnectionPool
     def InsertOrUpdateBallots(self, ballots:list[tuple[int, int, int, int]], connection=None) :
@@ -806,7 +831,7 @@ class DbWorkerService:
     @ConnectionPool
     def SelectCompetitionResults(self, comp_id:int, connection=None) -> list[PollingFileResults]:
         ps_cursor = connection.cursor() 
-        ps_cursor.execute("SELECT result_place, file_id, result_score FROM competition_member WHERE comp_id = %s", (comp_id, ))
+        ps_cursor.execute("SELECT result_place, file_id, result_score FROM competition_member WHERE comp_id = %s AND (result_place IS NOT NULL) AND (result_score IS NOT NULL)", (comp_id, ))
         rows = ps_cursor.fetchall()        
         result:list[PollingFileResults] = []
 

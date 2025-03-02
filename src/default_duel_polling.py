@@ -1,5 +1,5 @@
-from competition_polling import ICompetitionPolling
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo
+from competition_polling import ICompetitionPolling, PollingResults
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, PollingFileResults
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
@@ -16,7 +16,9 @@ class DefaultDuelPolling(ICompetitionPolling):
         self.CompWorker = comp_worker
 
     def GetMinimumMemberCount(self) -> int:
-        return 2    
+        return 2
+    def GetMaximumMemberCount(self) -> int:
+        return 2          
 
     @staticmethod
     def MakeQueryString(comp_id:int, query:str) -> str:
@@ -79,6 +81,7 @@ class DefaultDuelPolling(ICompetitionPolling):
             await query.answer("Участникам нельзя голосовать в дуэли")
             return
 
+        self.Db.DeleteUserBallots(comp.Id, update.effective_user.id)
         self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])
         
         schema = self.Db.GetPollingSchema(comp.PollingScheme)
@@ -86,4 +89,35 @@ class DefaultDuelPolling(ICompetitionPolling):
         await query.answer("Голос принят")
         await query.edit_message_text(
             text = updated_msgtext,
-            reply_markup = self.MakeKeyboard(comp))        
+            reply_markup = self.MakeKeyboard(comp))
+        
+    def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:
+        
+        file_scores:dict[int, int] = {}
+        for files in comp_stat.SubmittedFiles.values():
+            for file in files:
+                file_scores[file.Id] = 0
+
+        ballots = self.Db.SelectCompetitionBallots(comp.Id)
+        for fballots in ballots.values():
+            for ballot in fballots:
+                file_scores[ballot.FileId] += ballot.Points
+
+        file_ids = list(file_scores.keys())
+        if len(file_ids) != 2:
+            raise LitGBException("actual file count in duel not eqaul to 2, file count: "+str(len(file_ids)))
+        
+        f1_author = comp_stat.GetFileSubmitter(file_ids[0])
+        f2_author = comp_stat.GetFileSubmitter(file_ids[1])
+
+        f1 = PollingFileResults(0, file_ids[0], file_scores[file_ids[0]])
+        f2 = PollingFileResults(0, file_ids[1], file_scores[file_ids[1]])
+        if f1.Score > f2.Score:
+            return PollingResults([f1_author], [], [f2_author], )
+        elif f1.Score < f2.Score:
+            return PollingResults([f2_author], [], [f1_author], )
+        else:
+            return PollingResults([], [f1_author, f2_author], [], )
+
+    def ForOpenType(self) -> bool:
+        return False
