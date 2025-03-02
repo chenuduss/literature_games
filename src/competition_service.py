@@ -201,8 +201,9 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
             for loser in comp_results.Losers:
                 await self.ProcessLosedMember(comp, loser, context)            
 
+            polling_results = []
             for file_res in comp_results.RatingTable:    
-                self.Db.SetFileResults(comp.Id, file_res.FileId, file_res.Score, file_res.RatingPos)
+                polling_results.append(self.Db.SetFileResults(comp.Id, file_res.FileId, file_res.Score, file_res.RatingPos))
 
         await self.ShowResults(comp, comp_stat, polling_results, context, comp.ChatId)
 
