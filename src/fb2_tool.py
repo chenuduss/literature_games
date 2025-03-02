@@ -56,7 +56,7 @@ def GetTextSize(par:str) -> int:
 
 def PrepareText(par:str) -> tuple[str, int]:
     npar = NormalizeParagraph(par)
-    return (par, GetTextSize(npar))
+    return (npar, GetTextSize(npar))
 
 def ValidateSectionText(text:str) -> bool:
     global NotAllowedText
