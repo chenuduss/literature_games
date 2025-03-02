@@ -200,6 +200,7 @@ class LitGBot(CompetitionService):
             status_msg += "\n\n🔷 "+str(index) +". "+handler.Config.Title
             status_msg += "\nТип конкурса: "+("открытый" if handler.ForOpenType() else "закрытый")
             status_msg += "\nМинимальное количество участников: "+str(handler.GetMinimumMemberCount())
+            status_msg += "\nМаксимальное количество участников: "+str(handler.GetMaximumMemberCount())
             status_msg += "\n"+handler.Config.Description
 
         await update.message.reply_text(status_msg)           
