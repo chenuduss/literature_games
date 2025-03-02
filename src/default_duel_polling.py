@@ -24,7 +24,7 @@ class DefaultDuelPolling(ICompetitionPolling):
     def MakeQueryString(comp_id:int, query:str) -> str:
         return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
     
-    def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, int]:
+    def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, int]:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, poll_schema)
 
         voted_user_count = self.Db.GetVotedUserCount(comp.Id)
@@ -43,7 +43,10 @@ class DefaultDuelPolling(ICompetitionPolling):
                 else:    
                     msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.NameForMessage()
             else:
-                msgtext += "\n\nВы ещё не голосовали в этом конкурсе"
+                if not comp_stat.IsUserSubmitted(update.effective_user.id):
+                    msgtext += "\n\nВы ещё не голосовали в этом конкурсе."
+                else:
+                    msgtext += "\n\nВам нельзя голосовать, потому что вы автор одного из рассказов."    
 
         return (msgtext, voted_user_count)
 
@@ -66,7 +69,8 @@ class DefaultDuelPolling(ICompetitionPolling):
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
 
-        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_stat, comp_info.PollingHandler.Config, update)
 
         keybd =InlineKeyboardMarkup([])
         if voted_user_count < self.MaxBallotsPerPolling:
