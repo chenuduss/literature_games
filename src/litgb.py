@@ -1054,7 +1054,7 @@ class LitGBot(CompetitionService):
                         raise LitGBException("неправильный входной токен")
         comp_stat = self.Db.GetCompetitionStat(comp.Id)       
         if len(comp_stat.RegisteredMembers) >= self.MaximumCompetitionMemberCount:
-            raise LitGBException("⛔️ В конкурсе может участвовать не больше "str(self.MaximumCompetitionMemberCount)+" участников")        
+            raise LitGBException("⛔️ В конкурсе может участвовать не больше " + str(self.MaximumCompetitionMemberCount)+" участников")        
         comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))

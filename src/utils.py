@@ -7,6 +7,8 @@ def GetRandomString(length:int) -> str:
     return ''.join(random.choice(letters) for i in range(length))
 
 def MakeFileTitleForButtonCaption(src:str) -> str:
+    if len(src) > 23:
+        return src[0:20] + "..."
     return src
 
 def MakeHumanReadableAmount(value:int) -> str:     

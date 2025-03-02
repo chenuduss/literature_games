@@ -57,7 +57,7 @@ class DefaultDuelPolling(ICompetitionPolling):
                 for f in files:
                     keyboard.append([InlineKeyboardButton("👍 #"+str(f.Id)+": "+MakeFileTitleForButtonCaption(f.Title), callback_data=self.MakeQueryString(comp.Id, "vote:"+str(f.Id)) )]) 
 
-        InlineKeyboardMarkup(keyboard)
+        return InlineKeyboardMarkup(keyboard)
 
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
@@ -127,10 +127,13 @@ class DefaultDuelPolling(ICompetitionPolling):
             f1.RatingPos = 2
             f2.RatingPos = 1
             return PollingResults([f2_author], [], [f1_author], [f1,f2])
-        else:
+        else:                        
             f1.RatingPos = 1
             f2.RatingPos = 1
-            return PollingResults([], [f1_author, f2_author], [], [f1,f2])
+            half_winners = []
+            if f1.Score > 0:
+                half_winners = [f1_author, f2_author]
+            return PollingResults([], half_winners, [], [f1,f2])
 
     def ForOpenType(self) -> bool:
         return False
