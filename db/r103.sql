@@ -18,7 +18,8 @@ CREATE TABLE competition_ballot_draft (
     user_id bigint NOT NULL,    
     ballot text,
     FOREIGN KEY (comp_id) REFERENCES competition (id),
-    FOREIGN KEY (user_id) REFERENCES sd_user (id)
+    FOREIGN KEY (user_id) REFERENCES sd_user (id),
+    PRIMARY KEY (comp_id, user_id)
 );
 
 CREATE INDEX idx_competition_ballot_draft_comp_id on competition_ballot_draft ("comp_id");

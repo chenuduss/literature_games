@@ -874,3 +874,18 @@ class DbWorkerService:
         rows = ps_cursor.fetchall() 
   
         return int(rows[0][0])
+    
+    @ConnectionPool
+    def SaveUserPollingDraft(self, comp_id:int, user_id:int, draft:str, connection=None):
+        ps_cursor = connection.cursor()
+        
+        ps_cursor.execute("INSERT INTO competition_ballot_draft (comp_id, user_id, ballot) values(%s, %s, %s) ON CONFLICT (comp_id, user_id) DO UPDATE SET ballot = %s", (comp_id, user_id, draft, draft))         
+        connection.commit()
+
+    @ConnectionPool
+    def ReadUserPollingDraft(self, comp_id:int, user_id:int, connection=None) -> str:
+        ps_cursor = connection.cursor()        
+        ps_cursor.execute("SELECT ballot FROM competition_ballot_draft WHERE comp_id = %s AND user_id = %s", (comp_id, user_id))
+        
+        rows = ps_cursor.fetchall() 
+        return rows[0][0]

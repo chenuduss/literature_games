@@ -8,6 +8,16 @@ from competition_worker import CompetitionWorker
 
 class DefaultTrielPolling(ICompetitionPolling):
     Name:str = "default_triel"
+    MenuQueryRegex = re.compile("select:(\\d+)")
+    MaxBallotsPerPolling = 500    
+
+    @staticmethod
+    def ParseMenuQuery(query:str) -> tuple[int]:
+        try:
+            m = DefaultTrielPolling.MenuQueryRegex.match(query)
+            return int(m.group(1))
+        except BaseException as ex:
+            raise LitGBException("DefaultTrielPolling: invalid polling menu query")     
 
     def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo, comp_worker:CompetitionWorker):
         ICompetitionPolling.__init__(self, db, schema_config)
