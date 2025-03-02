@@ -26,10 +26,9 @@ class ChatTopItem:
         self.Title = title
         self.Amount = amount        
 
-class UserInfo:
-    def __init__(self, id:int, title:str):
+class UserStub:
+    def __init__(self, id:int):
         self.Id = id
-        self.Title = title
 
     def __eq__(self, other):
         return self.Id == other.Id
@@ -38,7 +37,12 @@ class UserInfo:
         return not self.__eq__(other) 
     
     def __hash__(self):
-        return hash(self.Id)   
+        return hash(self.Id)         
+
+class UserInfo(UserStub):
+    def __init__(self, id:int, title:str):
+        UserStub.__init__(self, id)
+        self.Title = title  
 
 class UserFullInfo(UserInfo):
     def __init__(self, id:int, title:str, losses:int, wins:int, half_wins:int, file_limit:int):

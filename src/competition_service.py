@@ -1,5 +1,5 @@
 from competition_worker import CompetitionWorker
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo, PollingFileResults
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo, PollingFileResults, UserStub
 import logging
 from telegram.ext import ContextTypes
 from litgb_exception import LitGBException
@@ -130,7 +130,7 @@ class CompetitionService(CompetitionWorker, FileService):
     async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         comp_stat = self.Db.GetCompetitionStat(comp.Id)        
         for user in comp_stat.RegisteredMembers:
-            user_files = comp_stat.SubmittedFiles.get(user.Id, [])
+            user_files = comp_stat.SubmittedFiles.get(UserStub(user.Id), [])
             if len(user_files) == 0:
                 await self.ProcessLosedMember(comp, user, context)        
 
@@ -310,5 +310,4 @@ class CompetitionService(CompetitionWorker, FileService):
     
     def GetCompetitionPollingHandler(self, comp:CompetitionInfo)-> ICompetitionPolling:        
         return self.GetPollingHandler(comp.PollingScheme)
-    
-      
+

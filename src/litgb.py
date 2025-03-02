@@ -1,7 +1,7 @@
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, UserStub
 import logging
 import json
 import time
@@ -476,7 +476,7 @@ class LitGBot(CompetitionService):
     def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file:FileInfo) -> bool:
         if not comp.IsStarted():
             return False
-        submitted_files = comp_stat.SubmittedFiles.get(user_id, [])
+        submitted_files = comp_stat.SubmittedFiles.get(UserStub(user_id), [])
         if len(submitted_files) >= comp.MaxFilesPerMember:
             return False
         
@@ -1148,7 +1148,7 @@ class LitGBot(CompetitionService):
 
             if CompetitionWorker.CheckCompetitionLeaveable(comp) is None:
                 if comp_stat.IsUserRegistered(user_id):   
-                    if len(comp_stat.SubmittedFiles.get(user_id, [])) > 0:    
+                    if len(comp_stat.SubmittedFiles.get(UserStub(user_id), [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
@@ -1210,7 +1210,7 @@ class LitGBot(CompetitionService):
             if comp_info.Stat.IsUserRegistered(user_id):
                 result +="\n\n‼️ ВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
 
-                user_files = comp_info.Stat.SubmittedFiles.get(user_id, [])
+                user_files = comp_info.Stat.SubmittedFiles.get(UserStub(user_id), [])
                 if len(user_files) > 0:
                     result +="\n✅ Ваши файлы на этом конкурсе:"
                     i = 0
