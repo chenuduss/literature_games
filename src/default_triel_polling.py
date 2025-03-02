@@ -21,6 +21,12 @@ class DefaultTrielPolling(ICompetitionPolling):
     def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> str:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, poll_schema)
 
+        voted_user_count = self.Db.GetVotedUserCount(comp.Id)
+
+        msgtext += "\n\nКол-во проголосовавших: "+str(voted_user_count)
+        if voted_user_count >= self.MaxBallotsPerPolling:
+            msgtext += "\n❗️ Достигнут лимит количества проголосовавших!"
+
         msgtext += "\n\nВ разработке"
 
         return msgtext
