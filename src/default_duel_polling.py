@@ -45,7 +45,14 @@ class DefaultDuelPolling(ICompetitionPolling):
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
-        if not comp_stat.IsUserSubmitted(update.effective_chat.id):
+
+        vote_buttons_allowed = False
+        if update.effective_chat.id != update.effective_user.id:
+            vote_buttons_allowed = True
+        else:
+            vote_buttons_allowed = not comp_stat.IsUserSubmitted(update.effective_chat.id)
+
+        if vote_buttons_allowed:
             for files in comp_stat.SubmittedFiles.values():
                 for f in files:
                     keyboard.append([InlineKeyboardButton("👍 #"+str(f.Id)+": "+MakeFileTitleForButtonCaption(f.Title), callback_data=self.MakeQueryString(comp.Id, "vote:"+str(f.Id)) )]) 

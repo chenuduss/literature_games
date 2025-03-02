@@ -99,7 +99,8 @@ class LitGBot(CompetitionService):
             raise LitGBException("invalid maximum_text_size default value: "+str(self.DefaultMaxTextSize))
 
         self.Admins = set(admin["user_ids"])
-        self.Timezone = pytz.timezone("Europe/Moscow")        
+        self.Timezone = pytz.timezone("Europe/Moscow") 
+        self.MaximumCompetitionMemberCount = 30       
 
     @staticmethod
     def GetUserTitleForLog(user:User) -> str:
@@ -487,8 +488,11 @@ class LitGBot(CompetitionService):
         for f in submitted_files:            
             if f.Id == file.Id:
                 return False
-            if LitGBot.CheckSimilarityOfTitles(f.Title, stripped_title):
-                return False
+            
+        for files in comp_stat.SubmittedFiles.values():  
+            for f in files:
+                if LitGBot.CheckSimilarityOfTitles(f.Title, stripped_title):
+                    return False
         
         return True            
 
@@ -1047,8 +1051,11 @@ class LitGBot(CompetitionService):
             if not (comp.EntryToken is None):
                 if len(comp.EntryToken) > 0:
                     if comp.EntryToken != token:
-                        raise LitGBException("неправильный входной токен: введено ")
-        comp_stat = self.Db.JoinToCompetition(comp_id, update.effective_user.id)
+                        raise LitGBException("неправильный входной токен")
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)       
+        if len(comp_stat.RegisteredMembers) >= self.MaximumCompetitionMemberCount:
+            raise LitGBException("⛔️ В конкурсе может участвовать не больше "str(self.MaximumCompetitionMemberCount)+" участников")        
+        comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
 
