@@ -1,6 +1,7 @@
 import os
 import random
 from datetime import timedelta
+import logging
 
 class FileStorage:
     def __init__(self, conf:dict):
@@ -21,7 +22,10 @@ class FileStorage:
 
     def DeleteFileFullPath(self, file_path:str):
         if os.path.exists(file_path):
-            os.remove(file_path)
+            try:
+                os.remove(file_path)
+            except BaseException as ex:
+                logging.error("[FILESTOR] error on delete file "+file_path+": "+str(ex))
 
     def GetFileSize(self, file_path:str) -> int:
         return os.path.getsize(file_path)
