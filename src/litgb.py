@@ -82,14 +82,16 @@ class LitGBot(CompetitionService):
             self.DefaultPollingStageTimedelta = timedelta(hours=defaults.get('default_polling_stage_h', 48))
         self.MinimumPollingStageInterval = timedelta(minutes=defaults.get('minimum_polling_stage_min', 60*2))
 
-        self.DefaultMinTextSize = defaults.get('minimum_text_size', 12500)
-        self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)
-
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
         self.MaxAllowedCompetitionDeadlineFutureInterval = timedelta(days=40)
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
+
+        self.DefaultMinTextSize = defaults.get('minimum_text_size', 12500)        
+        self.DefaultMaxTextSize = defaults.get('maximum_text_size', 40000)
+        self.DefaultMinTextSize = self.DefaultMinTextSize - (self.DefaultMinTextSize % self.TextLimitChangeStep)
+        self.DefaultMaxTextSize = self.DefaultMaxTextSize - (self.DefaultMaxTextSize % self.TextLimitChangeStep)
 
         if self.DefaultMaxTextSize < self.MinTextSize:
             raise LitGBException("invalid minimum_text_size default value: "+str(self.DefaultMinTextSize))
