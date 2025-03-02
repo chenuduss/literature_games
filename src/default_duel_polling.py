@@ -104,7 +104,7 @@ class DefaultDuelPolling(ICompetitionPolling):
         self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])
         
         schema = self.Db.GetPollingSchema(comp.PollingScheme)
-        updated_msgtext = self.GetPollingMessageText(comp, schema, update)                     
+        updated_msgtext, _ = self.GetPollingMessageText(comp, schema, update)                     
         await query.answer("Голос принят")
         await query.edit_message_text(
             text = updated_msgtext,
