@@ -1,7 +1,7 @@
 from competition_polling import ICompetitionPolling
 from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException
 from competition_worker import CompetitionWorker
