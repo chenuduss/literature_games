@@ -1248,7 +1248,7 @@ class LitGBot(CompetitionService):
             i = 0
             for m in comp_info.Stat.RegisteredMembers:
                 i += 1
-                result +="\n🔹 "+str(i)+": "+m.Title
+                result +="\n🔹 "+str(i)+": "+m.NameForMessage()
         else:
             result +="\n📈 Кол-во участников приславших рассказы: " + str(comp_info.Stat.SubmittedMemberCount())    
             result +="\n📚 Кол-во присланных рассказов: " + str(comp_info.Stat.SubmittedFileCount)  

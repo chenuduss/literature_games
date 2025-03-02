@@ -124,7 +124,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
 
     async def ProcessLosedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserLosses(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" проиграл в конкурсе #"+str(comp.Id))        
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.NameForMessage()+" проиграл в конкурсе #"+str(comp.Id))        
 
     async def ProcessFailedMembers(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
         comp_stat = self.Db.GetCompetitionStat(comp.Id)        
@@ -147,11 +147,11 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         if comp.IsClosedType():
             for user, files in comp_stat.SubmittedFiles.items():                   
                 for f in files:
-                    message_text +=  user.Title + ": " + f.Title
+                    message_text +=  user.NameForMessage() + ": " + f.NameForMessage()
         else:            
             for user, files in comp_stat.SubmittedFiles.items():                    
                 for f in files:
-                    message_text +=  user.Title + ": " + f.Title            
+                    message_text +=  user.NameForMessage() + ": " + f.NameForMessage()            
             message_text += "\n\nВопрос: в открытом конкурсе (самосуд) выводить всех или выводить только победителей? Имеет ли проигравший право сохранить свою анонимность?"
 
         await context.bot.send_message(comp.ChatId, message_text)                 
@@ -159,11 +159,11 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
 
     async def ProcessHalfWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserHalfWins(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" полупобедил в конкурсе #"+str(comp.Id))
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.NameForMessage() +" полупобедил в конкурсе #"+str(comp.Id))
 
     async def ProcessWinnedMember(self, comp:CompetitionInfo, user:UserInfo, context: ContextTypes.DEFAULT_TYPE):
         self.Db.IncreaseUserWins(user.Id)
-        await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
+        await context.bot.send_message(comp.ChatId, "Пользователь "+user.NameForMessage()+" победил в конкурсе #"+str(comp.Id))
 
     def ConvertBallots(self, src:dict[UserInfo, list[FileBallot]]) -> dict[int, list[UserBallot]]:
         result:dict[int, list[UserBallot]] = {}
@@ -176,15 +176,24 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         return result
 
     async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):
-        msg_header = ""
-        current_msg = ""
+        
 
         blts = self.ConvertBallots(ballots)
-        for file_id, uballots in blts.items():        
+        for file_id, uballots in blts.items():
             current_msg = ""
+            file_info = self.Db.FindFile(file_id)            
+            msg_header = "Голоса за рассказ [#"+str(file_info.Id)+"] "+file_info.NameForMessage()+"\n"
+            for ballot in uballots:
+                current_msg += "\n"+ballot.User.NameForMessage()+": "+str(ballot.Points)
 
-        if len(current_msg) > 0:
-            await context.bot.send_message(chat_id, msg_header+current_msg)
+                if len(current_msg) > 2500:
+                    await context.bot.send_message(chat_id, msg_header+current_msg)
+                    current_msg = ""
+
+            if len(current_msg) > 0:
+                await context.bot.send_message(chat_id, msg_header+current_msg)
+                current_msg = ""
+        
 
     async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[UserInfo, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE, chat_id:int):        
         await context.bot.send_message(chat_id, "В разработке")
@@ -208,7 +217,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         message_text = "Результаты конкурса #"+str(comp.Id)+"\n"
         for file_info in file_results:
             finfo = comp_stat.GetFileInfo(file_info.FileId)
-            message_text += "\n№"+str(file_info.RatingPos)+". Баллы "+str(file_info.Score)+": [#"+str(finfo.Id)+"] "+finfo.Title
+            message_text += "\n№"+str(file_info.RatingPos)+". Баллы "+str(file_info.Score)+": [#"+str(finfo.Id)+"] "+finfo.NameForMessage()
 
         await context.bot.send_message(chat_id, message_text)
 

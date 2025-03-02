@@ -5,7 +5,6 @@ from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHan
 import re
 from litgb_exception import LitGBException
 from competition_worker import CompetitionWorker
-from utils import MakeFileTitleForButtonCaption
 
 class DefaultDuelPolling(ICompetitionPolling):
     Name:str = "default_duel"
@@ -42,7 +41,7 @@ class DefaultDuelPolling(ICompetitionPolling):
                 if file is None:
                     msgtext += "\n\nВаш голос за рассказ: ОШИБКА! Файл не найден"    
                 else:    
-                    msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.Title
+                    msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.NameForMessage()
             else:
                 msgtext += "\n\nВы ещё не голосовали в этом конкурсе"
 
@@ -60,7 +59,7 @@ class DefaultDuelPolling(ICompetitionPolling):
         if vote_buttons_allowed:
             for files in comp_stat.SubmittedFiles.values():
                 for f in files:
-                    keyboard.append([InlineKeyboardButton("👍 #"+str(f.Id)+": "+MakeFileTitleForButtonCaption(f.Title), callback_data=self.MakeQueryString(comp.Id, "vote:"+str(f.Id)) )]) 
+                    keyboard.append([InlineKeyboardButton("👍 #"+str(f.Id)+": "+f.NameForButtonCaption(), callback_data=self.MakeQueryString(comp.Id, "vote:"+str(f.Id)) )]) 
 
         return InlineKeyboardMarkup(keyboard)
 

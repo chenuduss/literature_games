@@ -3,6 +3,7 @@ import psycopg2.extras
 from psycopg2 import pool
 from datetime import datetime
 from litgb_exception import LitGBException
+from utils import MakeShortTitle
 
 def ConnectionPool(function_to_decorate):    
     def wrapper(*args, **kwargs):
@@ -44,6 +45,9 @@ class UserInfo(UserStub):
         UserStub.__init__(self, id)
         self.Title = title  
 
+    def NameForMessage(self) -> str:
+        return MakeShortTitle(self.Title, 40)
+
 class UserFullInfo(UserInfo):
     def __init__(self, id:int, title:str, losses:int, wins:int, half_wins:int, file_limit:int):
         UserInfo.__init__(self, id, title)  
@@ -67,6 +71,12 @@ class FileInfo:
         self.Loaded = loaded
         self.FilePath = file_path
         self.Owner = owner
+        
+    def NameForMessage(self) -> str:
+        return MakeShortTitle(self.Title, 40)        
+    
+    def NameForButtonCaption(self) -> str:
+        return MakeShortTitle(self.Title, 23)       
 
 class FileBallot:
     def __init__(self, file_id:int, points:int):

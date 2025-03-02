@@ -6,10 +6,10 @@ def GetRandomString(length:int) -> str:
     letters = string.ascii_lowercase+string.ascii_uppercase    
     return ''.join(random.choice(letters) for i in range(length))
 
-def MakeFileTitleForButtonCaption(src:str) -> str:
-    if len(src) > 23:
-        return src[0:20] + "..."
-    return src
+def MakeShortTitle(v:str, maxlen:int) -> str:
+    if len(v) > maxlen:
+        return v[0:maxlen-3] + "..."
+    return v
 
 def MakeHumanReadableAmount(value:int) -> str:     
     if value > 1000000:
