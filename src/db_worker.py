@@ -802,6 +802,7 @@ class DbWorkerService:
         ps_cursor = connection.cursor()
         ps_cursor.execute("DELETE FROM competition_ballot WHERE comp_id = %s AND user_id = %s", (comp_id, user_id))         
         connection.commit()
+        return self.GetVotedUserCount(comp_id)
     
     @ConnectionPool
     def InsertOrUpdateBallots(self, ballots:list[tuple[int, int, int, int]], connection=None) :
@@ -854,3 +855,11 @@ class DbWorkerService:
         connection.commit()
 
         return self.FindCompetition(comp_id)
+    
+    @ConnectionPool
+    def GetVotedUserCount(self, comp_id:int, connection=None) -> int:
+        ps_cursor = connection.cursor() 
+        ps_cursor.execute("SELECT COUNT(*) FROM (SELECT user_id FROM competition_ballot WHERE comp_id = %s GROUP BY user_id) AS a", (comp_id,))
+        rows = ps_cursor.fetchall() 
+  
+        return int(rows[0][0])

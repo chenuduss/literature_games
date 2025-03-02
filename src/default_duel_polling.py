@@ -25,16 +25,17 @@ class DefaultDuelPolling(ICompetitionPolling):
     def MakeQueryString(comp_id:int, query:str) -> str:
         return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
     
-    def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, dict[int, list[FileBallot]]]:
+    def GetPollingMessageText(self, comp:CompetitionInfo, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, int]:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, poll_schema)
 
-        competition_ballots = self.Db.SelectCompetitionBallots(comp.Id)
+        voted_user_count = self.Db.GetVotedUserCount(comp.Id)
 
-        msgtext += "\n\nКол-во проголосовавших: "+str(len(competition_ballots.keys()))
-        if len(competition_ballots) >= self.MaxBallotsPerPolling:
+        msgtext += "\n\nКол-во проголосовавших: "+str(voted_user_count)
+        if voted_user_count >= self.MaxBallotsPerPolling:
             msgtext += "\n❗️ Достигнут лимит количества проголосовавших!"
         
         if update.effective_user.id == update.effective_chat.id:
+            competition_ballots = self.Db.SelectCompetitionBallots(comp.Id)
             user_ballots = competition_ballots.get(update.effective_user.id, [])
             if len(user_ballots) > 0:
                 file = self.Db.FindFile(user_ballots[0].FileId)
@@ -44,7 +45,8 @@ class DefaultDuelPolling(ICompetitionPolling):
                     msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.Title
             else:
                 msgtext += "\n\nВы ещё не голосовали в этом конкурсе"
-        return (msgtext, competition_ballots)
+
+        return (msgtext, voted_user_count)
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
@@ -65,10 +67,10 @@ class DefaultDuelPolling(ICompetitionPolling):
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
 
-        msgtext, ballots = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
+        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
 
         keybd =InlineKeyboardMarkup([])
-        if len(ballots)< self.MaxBallotsPerPolling:
+        if voted_user_count < self.MaxBallotsPerPolling:
             keybd = self.MakeKeyboard(update, comp, comp_info.Stat)
             
         if send_reply:
@@ -95,7 +97,10 @@ class DefaultDuelPolling(ICompetitionPolling):
             return
 
         self.Db.EnsureUserExists(update.effective_user.id)
-        self.Db.DeleteUserBallots(comp.Id, update.effective_user.id)
+        voted_user_count = self.Db.DeleteUserBallots(comp.Id, update.effective_user.id)
+        if voted_user_count >= self.MaxBallotsPerPolling:
+            await query.answer("Достигнут лимит количества проголосовавших")
+            return
         self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])
         
         schema = self.Db.GetPollingSchema(comp.PollingScheme)
