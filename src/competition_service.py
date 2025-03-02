@@ -1,5 +1,5 @@
 from competition_worker_implementation import CompetitionWorkerImplementation
-from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, PollingSchemaInfo, PollingFileResults, UserStub
+from db_worker import DbWorkerService, CompetitionInfo, CompetitionStat, UserInfo, FileBallot, PollingFileResults, UserStub
 import logging
 from telegram.ext import ContextTypes
 from litgb_exception import LitGBException
@@ -160,8 +160,19 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         self.Db.IncreaseUserWins(user.Id)
         await context.bot.send_message(comp.ChatId, "Пользователь "+user.Title+" победил в конкурсе #"+str(comp.Id))
 
+    async def ShowBallotsOfClosedCompetition(self, comp:CompetitionInfo, ballots:dict[int, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE):
+        pass
+
+    async def ShowBallotsOfOpenCompetition(self, comp:CompetitionInfo, ballots:dict[int, list[FileBallot]], context: ContextTypes.DEFAULT_TYPE):        
+        pass
+
     async def ShowBallots(self, comp:CompetitionInfo, context: ContextTypes.DEFAULT_TYPE):
-        pass    
+        ballots = self.Db.SelectCompetitionBallots(comp.Id)
+        if comp.IsOpenType():
+            await self.ShowBallotsOfOpenCompetition(comp, ballots, context)
+        else:
+            await self.ShowBallotsOfClosedCompetition(comp, ballots, context)
+        
 
     async def ShowResults(self, 
             comp:CompetitionInfo, 

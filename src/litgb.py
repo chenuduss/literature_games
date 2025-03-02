@@ -57,6 +57,7 @@ class LitGBot(CompetitionService):
         CompetitionService.__init__(self, db_worker, file_stor)
         self.StartTS = int(time.time())       
         
+        self.CompetitionBallotsViewLimits = CommandLimits(5, 30)
         self.CompetitionChangeLimits = CommandLimits(1, 3)
         self.CompetitionViewLimits = CommandLimits(0.7, 3)
         self.CompetitionPollViewLimits = CommandLimits(2, 4)
@@ -934,7 +935,7 @@ class LitGBot(CompetitionService):
 
     async def ballots(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
         logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        self.CompetitionViewLimits.Check(update.effective_user.id, update.effective_chat.id)
+        self.CompetitionBallotsViewLimits.Check(update.effective_user.id, update.effective_chat.id)
         comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/ballots")  
         comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
