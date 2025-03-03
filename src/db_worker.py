@@ -617,6 +617,7 @@ class DbWorkerService:
         ps_cursor = connection.cursor() 
         ps_cursor.execute("UPDATE competition SET finished = (current_timestamp AT TIME ZONE 'UTC'), canceled = %s WHERE id = %s ", (canceled, comp_id))
         ps_cursor.execute("UPDATE uploaded_file SET locked = FALSE WHERE id IN (SELECT file_id FROM competition_member WHERE file_id IS NOT NULL AND comp_id = %s) ", (comp_id, ))
+        ps_cursor.execute("DELETE FROM competition_ballot_draft WHERE comp_id = %s) ", (comp_id, ))
         connection.commit() 
         return self.FindCompetition(comp_id)    
 
