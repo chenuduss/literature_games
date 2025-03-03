@@ -24,8 +24,8 @@ class DefaultDuelPolling(ICompetitionPolling):
     def MakeQueryString(comp_id:int, query:str) -> str:
         return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
     
-    def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, poll_schema:PollingSchemaInfo, update: Update) -> tuple[str, int]:
-        msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, poll_schema)
+    def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, update: Update) -> tuple[str, int]:
+        msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, self.Config)
 
         voted_user_count = self.Db.GetVotedUserCount(comp.Id)
 
@@ -70,7 +70,7 @@ class DefaultDuelPolling(ICompetitionPolling):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
 
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
-        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_stat, comp_info.PollingHandler.Config, update)
+        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_stat, update)
 
         keybd =InlineKeyboardMarkup([])
         if voted_user_count < self.MaxBallotsPerPolling:
@@ -104,10 +104,9 @@ class DefaultDuelPolling(ICompetitionPolling):
         if voted_user_count >= self.MaxBallotsPerPolling:
             await query.answer("Достигнут лимит количества проголосовавших")
             return
-        self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])
+        self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])        
         
-        schema = self.Db.GetPollingSchema(comp.PollingScheme)
-        updated_msgtext, _ = self.GetPollingMessageText(comp, schema, update)                     
+        updated_msgtext, _ = self.GetPollingMessageText(comp, comp_stat, update)                     
         await query.answer("Голос принят")
         await query.edit_message_text(
             text = updated_msgtext,

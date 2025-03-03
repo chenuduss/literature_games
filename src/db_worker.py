@@ -191,7 +191,6 @@ class  CompetitionStat:
         return list(self.SubmittedFiles.keys())
      
     def GetFileInfo(self, id:int) -> FileInfo:
-
         for fl in self.SubmittedFiles.values():
             for f in fl:
                 if f.Id == id:

@@ -27,7 +27,7 @@ class DefaultOpenPolling(ICompetitionPolling):
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
-        InlineKeyboardMarkup(keyboard)          
+        return InlineKeyboardMarkup(keyboard)              
     
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
