@@ -122,6 +122,24 @@ class CompetitionWorker:
         
         raise LitGBException(reason)
     
+    @staticmethod
+    def CheckCompetitionDeadlinesChangable(comp: CompetitionInfo) -> str|None:
+        if datetime.now(timezone.utc) > comp.AcceptFilesDeadline - timedelta(hours=3):
+            return "🚫 До дедлайна приёма файлов слишком близко (или он в прошлом)."
+        return None    
+    
+    def FindDeadlinesChangableCompetition(self, comp_id:int, check_creator:int|None) -> CompetitionInfo:
+        comp = self.FindCompetitionBeforePollingStage(comp_id)
+
+        if not (check_creator is None):
+            self.EnsureCompetitionCreator(comp, check_creator)
+
+        reason = self.CheckCompetitionDeadlinesChangable(comp)
+        if reason is None:
+            return comp
+        
+        raise LitGBException(reason)    
+    
     def FindFileAcceptableCompetition(self, id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(id)
         if comp.Started is None:

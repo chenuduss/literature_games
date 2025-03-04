@@ -87,6 +87,7 @@ class LitGBot(CompetitionService):
 
         self.MaxCompetitionDeadlineFutureInterval = timedelta(days=60)
         self.MaxAllowedCompetitionDeadlineFutureInterval = timedelta(days=40)
+        self.MinAllowedCompetitionDeadlineFutureInterval = timedelta(hours=2)
         self.MinTextSize = 5000
         self.MaxTextSize = 120000
         self.TextLimitChangeStep = 2500
@@ -737,9 +738,12 @@ class LitGBot(CompetitionService):
                 new_deadlines = update.message.text.strip()
                 logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+new_deadlines) 
                 accept_files_deadline, polling_deadline = self.ParseDeadlines(new_deadlines, self.Timezone)
-                if polling_deadline > datetime.now(timezone.utc) + self.MaxAllowedCompetitionDeadlineFutureInterval:
+                now_ts = datetime.now(timezone.utc)
+                if polling_deadline > now_ts + self.MaxAllowedCompetitionDeadlineFutureInterval:
                     raise LitGBException("дедлайн голосования слишком далеко")
-                comp = self.FindPropertyChangableCompetition(convers.SetDeadlinesFor, update.effective_user.id)
+                if accept_files_deadline < now_ts + self.MinAllowedCompetitionDeadlineFutureInterval:
+                    raise LitGBException("дедлайн приёма файлов слишком близко")
+                comp = self.FindDeadlinesChangableCompetition(convers.SetDeadlinesFor, update.effective_user.id)
                 if not (comp.ChatId is None):
                     if not self.CheckCompetitionDeadlines(comp.ChatId,):
                         raise LitGBException("новые дедлайны пересекаются с дедлайнами других конкурсов")
@@ -1127,8 +1131,7 @@ class LitGBot(CompetitionService):
             if user_id == comp.CreatedBy :
                 if self.CheckCompetitionPropertyChangable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Установить тему', callback_data='comp_'+list_type+'_setsubject_'+str(comp.Id))]) 
-                    keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))]) 
-                    keyboard.append([InlineKeyboardButton('Установить дедлайны', callback_data='comp_'+list_type+'_setdeadlines_'+str(comp.Id))])
+                    keyboard.append([InlineKeyboardButton('Установить пояснение', callback_data='comp_'+list_type+'_setsubjectext_'+str(comp.Id))])                     
 
                     min_text_size_change_kbd = []
                     if comp.MinTextSize > self.MinTextSize:
@@ -1158,7 +1161,8 @@ class LitGBot(CompetitionService):
                         if len(max_files_change_kbd) > 0:
                             keyboard.append(max_files_change_kbd)
 
-
+                if self.CheckCompetitionDeadlinesChangable(comp) is None:
+                    keyboard.append([InlineKeyboardButton('Установить дедлайны', callback_data='comp_'+list_type+'_setdeadlines_'+str(comp.Id))])
                 if self.IsCompetitionСancelable(comp) is None:            
                     keyboard.append([InlineKeyboardButton('Отменить', callback_data='comp_'+list_type+'_cancel_'+str(comp.Id))])
         
@@ -1348,7 +1352,7 @@ class LitGBot(CompetitionService):
                     reply_markup=self.comp_menu_keyboard(list_type, comp_index, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
              
             elif action == "setdeadlines":
-                comp = self.FindPropertyChangableCompetition(comp_id, update.effective_user.id)
+                comp = self.FindDeadlinesChangableCompetition(comp_id, update.effective_user.id)
                 uconv = UserConversation()
                 uconv.SetDeadlinesFor = comp.Id
                 self.UserConversations[update.effective_user.id] = uconv
