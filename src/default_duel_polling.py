@@ -20,9 +20,9 @@ class DefaultDuelPolling(ICompetitionPolling):
     def GetMaximumMemberCount(self) -> int:
         return 2          
 
-    @staticmethod
-    def MakeQueryString(comp_id:int, query:str) -> str:
-        return ICompetitionPolling.MakeMenuQuery(DefaultDuelPolling.Name, comp_id, query)
+    
+    def MakeQueryString(self, comp_id:int, query:str) -> str:
+        return ICompetitionPolling.MakeMenuQuery(self.Config.Id, comp_id, query)
     
     def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, update: Update) -> tuple[str, int]:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, self.Config)

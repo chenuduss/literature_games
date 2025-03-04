@@ -28,8 +28,8 @@ class ICompetitionPolling:
             raise LitGBException("invalid polling menu query")   
 
     @staticmethod
-    def MakeMenuQuery(polling_type:str, comp_id:int, query:str) -> str:
-        return "poll:"+polling_type+":"+str(comp_id)+":"+query
+    def MakeMenuQuery(handler_id:int, comp_id:int, query:str) -> str:
+        return "poll:"+str(handler_id)+":"+str(comp_id)+":"+query
     
     def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo):
         self.Db = db

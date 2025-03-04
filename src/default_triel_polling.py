@@ -59,22 +59,49 @@ class DefaultTrielPolling(ICompetitionPolling):
         else:
             user_ballots = ballots.get(UserStub(update.effective_user.id), [])
             if len(user_ballots) > 0:    
-                msgtext += "\n\nВаше голосование:"
-                msgtext += "\n\n(в разработке)"
+                msgtext += "\n\n🗳 Ваше голосование:"
+                user_ballots.sort(key=lambda x: x.Points)
+                i = 0
+                for b in reversed(user_ballots):
+                    i += 1
+                    f = self.Db.FindFile(b.FileId)
+                    msgtext += "\n"+str(i)+". #"+str(f.Id)+" "+f.NameForMessage()
             else:
-                msgtext += "\n\nВы не голосовали."    
+                msgtext += "\n\nВы не голосовали."
 
             if not (polling_draft is None):
-                msgtext += "\n\nВаш черновик голосования"
+                msgtext += "\n\n📄 Ваш черновик голосования:"
+                f = comp_stat.GetFileInfo(polling_draft['pos1'])
+                msgtext += "\n1. #"+str(f.Id)+" "+f.NameForMessage()
+                if 'pos2' in polling_draft:
+                    f = comp_stat.GetFileInfo(polling_draft['pos2'])
+                    msgtext += "\n2. #"+str(f.Id)+" "+f.NameForMessage()
 
         return msgtext
+    
+    def MakeQueryString(self, comp_id:int, query:str) -> str:
+        return ICompetitionPolling.MakeMenuQuery(self.Config.Id, comp_id, query)  
 
-    def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
+    def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat, polling_draft:dict|None) -> InlineKeyboardMarkup:
         keyboard = []
         if update.effective_user.id != update.effective_chat.id:
             return InlineKeyboardMarkup(keyboard)
 
+        if polling_draft is None:
+            for au, files in comp_stat.SubmittedFiles.items():
+                for f in files:
+                    if au.Id != update.effective_user.id:
+                        keyboard.append([InlineKeyboardButton("#"+str(f.Id)+" "+f.NameForButtonCaption(), callback_data=self.MakeQueryString(comp.Id, "select1:"+str(f.Id)))]) 
+        else:
+            pos1_id = polling_draft['pos1']
+            for au, files in comp_stat.SubmittedFiles.items():
+                for f in files:
+                    if (au.Id != update.effective_user.id) and (f.id != pos1_id):
+                        keyboard.append([InlineKeyboardButton("#"+str(f.Id)+" "+f.NameForButtonCaption(), callback_data=self.MakeQueryString(comp.Id, "select2:"+str(f.Id)))])
+            if self.ValidatePollingDraft(polling_draft, UserStub(update.effective_user.id), comp_stat):
+                keyboard.append([InlineKeyboardButton("Проголосовать", callback_data=self.MakeQueryString(comp.Id, "apply:0"))]) 
 
+            keyboard.append([InlineKeyboardButton("Очистить черновик", callback_data=self.MakeQueryString(comp.Id, "discard_draft:0"))])     
                 
 
         return InlineKeyboardMarkup(keyboard) 
@@ -82,13 +109,18 @@ class DefaultTrielPolling(ICompetitionPolling):
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
         
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)    
-
-        msgtext = self.GetPollingMessageText(comp, comp_info.Stat, update)
+        polling_draft = None
+        if update.effective_user.id != update.effective_chat.id:
+            polling_draft = self.Db.ReadUserPollingDraft(comp.Id, update.effective_user.id)
+        msgtext = self.GetPollingMessageText(comp, comp_info.Stat, update, polling_draft)
         
+
+        kbd = self.MakeKeyboard(update, comp, comp_info.Stat, polling_draft)
+
         if send_reply:
-            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))        
+            await update.message.reply_text(msgtext, reply_markup=kbd)        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))    
+            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=kbd)    
 
     def GetPollingDraft(self, comp_id:int, user_id:int) -> dict:
         draft_str = self.Db.ReadUserPollingDraft(comp_id, user_id)
@@ -140,10 +172,9 @@ class DefaultTrielPolling(ICompetitionPolling):
         comp = self.CompWorker.FindCompetitionInPollingState(comp_id)
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp.Id)
         action, file_id = self.ParseMenuQuery(qdata)
+        poll_draft = None
         if action == "apply":
-            poll_draft = self.GetPollingDraft(comp.Id, update.effective_user.id)
-            if not ("pos2" in poll_draft):
-                raise LitGBException("try apply incomplete poll draft")
+            poll_draft = self.GetPollingDraft(comp.Id, update.effective_user.id)            
             if not self.ValidatePollingDraft(poll_draft):
                 raise LitGBException("invalid polling draft")
             
@@ -176,7 +207,7 @@ class DefaultTrielPolling(ICompetitionPolling):
         await query.answer("")
         await query.edit_message_text(
             text = updated_msgtext,
-            reply_markup = self.MakeKeyboard(update, comp, comp_info.Stat))
+            reply_markup = self.MakeKeyboard(update, comp, comp_info.Stat, poll_draft))
         
     def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:
         return PollingResults([], [], [], [])
