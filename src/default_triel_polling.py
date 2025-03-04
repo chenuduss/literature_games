@@ -1,11 +1,12 @@
 from competition_polling import ICompetitionPolling, PollingResults
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, UserStub, PollingSchemaInfo
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, UserStub, PollingSchemaInfo, UserInfo, PollingFileResults
 from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException, OnlyPrivateMessageAllowed
 from competition_worker import CompetitionWorker
 import json
+import logging
 
 class DefaultTrielPolling(ICompetitionPolling):
     Name:str = "default_triel"
@@ -209,8 +210,68 @@ class DefaultTrielPolling(ICompetitionPolling):
             text = updated_msgtext,
             reply_markup = self.MakeKeyboard(update, comp, comp_info.Stat, poll_draft))
         
-    def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:
-        return PollingResults([], [], [], [])
+    def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:        
+
+        file_scores:dict[int, int] = {}  #  file_id -> total score 
+        for files in comp_stat.SubmittedFiles.values():
+            for file in files:
+                file_scores[file.Id] = 0
+
+        ballots = self.Db.SelectCompetitionBallots(comp.Id)
+        for fballots in ballots.values():
+            for ballot in fballots:
+                file_scores[ballot.FileId] += ballot.Points
+
+        losers:list[UserInfo] = []
+
+        for u in comp_stat.GetSubmittedMembers():
+            if not (u in ballots):
+                logging.info("[CALCRES] user "+ u.Title+" is losed because not polled")
+                losers.append(u)
+                for f in comp_stat.SubmittedFiles[u]:
+                    file_scores.pop(f.Id)
+
+        if len(file_scores.keys()) == 0:
+            return PollingResults([], [], losers, [])
+        
+        if len(file_scores.keys()) == 1:
+            file_id = list(file_scores.keys())[0]
+            f1_author = comp_stat.GetFileSubmitter(file_id)
+            f1 = PollingFileResults(1, file_id, file_scores[file_id])
+            return PollingResults([f1_author], [], losers, [f1])
+
+        file_ids = list(file_scores.keys())
+        if len(file_scores.keys()) == 2:
+            f1_author = comp_stat.GetFileSubmitter(file_ids[0])
+            f2_author = comp_stat.GetFileSubmitter(file_ids[1])
+
+            f1 = PollingFileResults(0, file_ids[0], file_scores[file_ids[0]])
+            f2 = PollingFileResults(0, file_ids[1], file_scores[file_ids[1]])
+            if f1.Score > f2.Score:
+                f1.RatingPos = 1
+                f2.RatingPos = 2
+                losers.append(f2_author)
+                return PollingResults([f1_author], [], losers, [f1,f2])
+            elif f1.Score < f2.Score:
+                f1.RatingPos = 2
+                f2.RatingPos = 1
+                losers.append(f1_author)
+                return PollingResults([f2_author], [], losers, [f1,f2])
+            else:                        
+                f1.RatingPos = 1
+                f2.RatingPos = 1
+                winners = []
+                half_winners = []
+                if f1.Score > 0:
+                    winners = [f1_author, f2_author]
+                else:
+                    half_winners = [f1_author, f2_author]
+                return PollingResults(winners, half_winners, losers, [f1,f2])            
+
+
+        # CASE WITH 3 MEMBERS
+
+        return PollingResults([], [], losers, [])
     
     def ForOpenType(self) -> bool:
         return False    
