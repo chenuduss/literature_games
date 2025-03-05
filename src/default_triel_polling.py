@@ -270,8 +270,35 @@ class DefaultTrielPolling(ICompetitionPolling):
 
 
         # CASE WITH 3 MEMBERS
+        file_table = [
+            PollingFileResults(0, file_ids[0], file_scores[file_ids[0]]),
+            PollingFileResults(0, file_ids[1], file_scores[file_ids[1]]),
+            PollingFileResults(0, file_ids[2], file_scores[file_ids[2]])
+        ]
+        file_table.sort(key=lambda x: x.Score)
+        file_table.reverse()        
+        file_table[0].RatingPos = 1
+        if file_table[0].Score == file_table[1].Score:
+            file_table[1].RatingPos = 1
+        else:
+            file_table[1].RatingPos = 2
 
-        return PollingResults([], [], losers, [])
+        if file_table[1].Score == file_table[2].Score:
+            file_table[2].RatingPos = file_table[1].RatingPos
+        else:
+            file_table[2].RatingPos = file_table[1].RatingPos + 1 
+
+        winners = []
+        if file_table[2].RatingPos == 3:
+            losers.append(comp_stat.GetFileSubmitter(file_table[2].FileId).Id)
+
+        if file_table[1].RatingPos > file_table[0].RatingPos:
+            winners.append(comp_stat.GetFileSubmitter(file_table[0].FileId).Id)
+
+        raise NotImplementedError("DefaultTrielPolling.CalcPollingResults")    
+
+
+        return PollingResults(winners, [], losers, file_table)
     
     def ForOpenType(self) -> bool:
         return False    
