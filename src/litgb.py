@@ -1099,29 +1099,30 @@ class LitGBot(CompetitionService):
         logging.info("[JCOMPS] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
         
-        comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)        
+        comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)  # type: ignore[union-attr]      
         if len(comp_list) == 0:
-            await update.message.reply_text("✖️ Нет конкурсов")
+            await update.message.reply_text("✖️ Нет конкурсов")# type: ignore[union-attr]
             return
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("joinable", 0, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
+        await update.message.reply_text(self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id),  # type: ignore[union-attr]
+            reply_markup=self.comp_menu_keyboard("joinable", 0, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id)) # type: ignore[union-attr]
     
     def ParseJoinToCompetitionCommand(self, msg:str) -> tuple[int, str]:        
         try:
             m = self.JoinToCompetitionCommandRegex.match(msg)
+            if m is None:
+                raise LitGBException("Некорректный формат команды /join (1)") 
             return (int(m.group(1)), m.group(2))
         except BaseException as ex:
-            raise LitGBException("Некорректный формат команды /join") 
+            raise LitGBException("Некорректный формат команды /join (2)") 
 
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
         logging.info("[JOIN] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)        
-
-        comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)        
+        msg:Message = update.message # type: ignore[assignment]
+        comp_id, token = self.ParseJoinToCompetitionCommand(msg.text or "")
         comp = self.FindJoinableCompetition(comp_id)
         user_id = self.EnsureUserExists(update)
         if comp.CreatedBy != user_id:
@@ -1134,45 +1135,53 @@ class LitGBot(CompetitionService):
             raise LitGBException("⛔️ В конкурсе может участвовать не больше " + str(self.MaximumCompetitionMemberCount)+" участников")        
         comp_stat = self.Db.JoinToCompetition(comp.Id, user_id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
-        await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
+        await msg.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
 
     
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        error = context.error
+        if error is None:
+            logging.error("Exception: ERROR IS NONE")
+            return
+
         if update is None:
-            logging.warning("Exception: "+ str(context.error))
+            logging.warning("Exception: "+ str(error))
         else:    
-            logging.info("Exception: user id "+LitGBot.GetUserTitleForLog(update.effective_user)+", chat id "+LitGBot.GetChatTitleForLog(update.effective_chat), exc_info=context.error)
+            logging.info("Exception: user id "+LitGBot.LogUserTitle(update)+", chat id "+LitGBot.LogChatTitle(update), exc_info=error)
 
         message_text = "impossible case (lol)"
-        if isinstance(context.error, OnlyPrivateMessageAllowed):
-            message_text = str(context.error)
-        elif isinstance(context.error, CommandRateLimitReached):
-            message_text = str(context.error)
-        elif isinstance(context.error, LitGBException): 
-            logging.warning("LitGBException: "+str(context.error))          
-            message_text = self.MakeErrorMessage(context.error)
+        if isinstance(error, OnlyPrivateMessageAllowed):
+            message_text = str(error)
+        elif isinstance(error, CommandRateLimitReached):
+            message_text = str(error)
+        elif isinstance(error, LitGBException): 
+            logging.warning("LitGBException: "+str(error))          
+            message_text = self.MakeErrorMessage(error)
         else:
-            logging.error("EXCEPTION: "+str(context.error))
-            tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+            logging.error("EXCEPTION: "+str(error))
+            tb_list = traceback.format_exception(None, error, error.__traceback__)
             tb_string = "".join(tb_list)
             logging.warning("Exception traceback:" + tb_string)            
-            message_text = self.MakeExternalErrorMessage(context.error)
+            message_text = self.MakeExternalErrorMessage(error)
         
         if update is None:
             pass
-        else:    
-            await update.message.reply_text(message_text)
+        else:
+            if not update.message is None:
+                await update.message.reply_text(message_text)
         
 
     def ParseCompetitionMenuQuery(self, query:str) -> tuple[str, str, int]:
         try:
             m = self.CompetitionMenuQueryRegex.match(query)
+            if m is None:
+                raise LitGBException("invalid comp menu query (1)")
             return (m.group(1), m.group(2), int(m.group(3)))
         except BaseException as ex:
-            raise LitGBException("invalid comp menu query")  
+            raise LitGBException("invalid comp menu query (2)")  
 
     def comp_poll_menu_keyboard(self, comp_info:CompetitionFullInfo, user_id:str, chat_id:int):
-        keyboard = []
+        keyboard:list[list[InlineKeyboardButton]] = []
         return InlineKeyboardMarkup(keyboard)
     
     def comp_menu_keyboard(self, 
@@ -1238,8 +1247,9 @@ class LitGBot(CompetitionService):
                     keyboard.append([InlineKeyboardButton('Присоединиться', callback_data='comp_'+list_type+'_join_'+str(comp.Id))])
 
             if CompetitionWorker.CheckCompetitionLeaveable(comp) is None:
-                if comp_stat.IsUserRegistered(user_id):   
-                    if len(comp_stat.SubmittedFiles.get(UserStub(user_id), [])) > 0:    
+                if comp_stat.IsUserRegistered(user_id): 
+                    user_info:UserInfo = UserStub(user_id) # type: ignore[assignment]
+                    if len(comp_stat.SubmittedFiles.get(user_info, [])) > 0:    
                         keyboard.append([InlineKeyboardButton('Снять все свои файлы', callback_data='comp_'+list_type+'_releasefiles_'+str(comp.Id))])
                     keyboard.append([InlineKeyboardButton('Выйти', callback_data='comp_'+list_type+'_leave_'+str(comp.Id))])
 
@@ -1295,13 +1305,16 @@ class LitGBot(CompetitionService):
         result +="\nМаксимальный размер текста: " + str(comp_info.Comp.MaxTextSize)        
         result +="\nМаксимум работ с одного участника: " + str(comp_info.Comp.MaxFilesPerMember)
         if comp_info.Comp.CreatedBy == chat_id:
-            result +="\n🔐 Входной токен: " + comp_info.Comp.EntryToken
+            if comp_info.Comp.EntryToken is None:
+                result +="\n🔐 ОТСУТСТВУЕТ ВХОДНОЙ ТОКЕН"
+            else:    
+                result +="\n🔐 Входной токен: " + comp_info.Comp.EntryToken
 
         if user_id == chat_id:
             if comp_info.Stat.IsUserRegistered(user_id):
                 result +="\n\n‼️ ВЫ УЧАСТВУЕТЕ В ЭТОМ КОНКУРСЕ"
-
-                user_files = comp_info.Stat.SubmittedFiles.get(UserStub(user_id), [])
+                user_info:UserInfo = UserStub(user_id) # type: ignore[assignment]
+                user_files = comp_info.Stat.SubmittedFiles.get(user_info, [])
                 if len(user_files) > 0:
                     result +="\n✅ Ваши файлы на этом конкурсе:"
                     i = 0
@@ -1371,7 +1384,7 @@ class LitGBot(CompetitionService):
 
         await query.answer()
         try:
-            (list_type, action, comp_id) = self.ParseCompetitionMenuQuery(query.data)
+            (list_type, action, comp_id) = self.ParseCompetitionMenuQuery(query.data or "")
 
             if action == "show":
 
@@ -1422,7 +1435,7 @@ class LitGBot(CompetitionService):
                 comp_info = self.GetCompetitionFullInfo(comp)
                 await query.edit_message_text(
                     text=self.comp_menu_message(
-                        comp_info, update.effective_user.id, chat_id),
+                        comp_info, user_id, chat_id),
                     reply_markup=self.comp_menu_keyboard(
                         list_type, comp_index, comp_info.Stat, comp_list, user_id, chat_id))
              
@@ -1430,7 +1443,7 @@ class LitGBot(CompetitionService):
                 comp = self.FindDeadlinesChangableCompetition(comp_id, user_id)
                 uconv = UserConversation()
                 uconv.SetDeadlinesFor = comp.Id
-                self.UserConversations[update.effective_user.id] = uconv
+                self.UserConversations[user_id] = uconv
                 await query.edit_message_text(
                     text="Введите две отметки времени разделённых знаком \"/\". Первая дедлайн приёма работа, вторая дедлайн голосования. Формат отметки времени: ДД.ММ.ГГГГ Час:Минута\n Время принимается в зоне Europe/Moscow\n\nНапример: 27.11.2024 23:46/30.11.2024 22:41", reply_markup=InlineKeyboardMarkup([]))
             elif action == "setsubject":  
