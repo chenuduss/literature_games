@@ -1,6 +1,6 @@
 from competition_polling import ICompetitionPolling, PollingResults
 from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, UserStub, PollingSchemaInfo, UserInfo, PollingFileResults
-from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException, OnlyPrivateMessageAllowed
@@ -110,23 +110,26 @@ class DefaultTrielPolling(ICompetitionPolling):
 
         return InlineKeyboardMarkup(keyboard) 
     
-    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        
-        comp_info = self.CompWorker.GetCompetitionFullInfo(comp)    
+    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):       
+
+
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
         polling_draft = None
         if update.effective_user.id != update.effective_chat.id: # type: ignore[union-attr]
             polling_draft = self.Db.ReadUserPollingDraft(comp.Id, update.effective_user.id) # type: ignore[union-attr]
-        msgtext = self.GetPollingMessageText(comp, comp_info.Stat, update, polling_draft)
+        msgtext = self.GetPollingMessageText(comp, comp_stat, update, polling_draft)
         
 
-        kbd = self.MakeKeyboard(update, comp, comp_info.Stat, polling_draft)
+        kbd = self.MakeKeyboard(update, comp, comp_stat, polling_draft)
 
         if send_reply:
+            if update.message is None:
+                raise LitGBException("message is None in update object")
             await update.message.reply_text(msgtext, reply_markup=kbd)        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=kbd)    
+            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=kbd) # type: ignore[union-attr]
 
-    def GetPollingDraft(self, comp_id:int, user_id:int) -> dict:
+    def GetPollingDraft(self, comp_id:int, user_id:int) -> dict | None:
         draft_str = self.Db.ReadUserPollingDraft(comp_id, user_id)
         if len(draft_str) > 3:            
             result = json.loads(draft_str)
@@ -169,49 +172,53 @@ class DefaultTrielPolling(ICompetitionPolling):
         raise NotImplementedError("DefaultTrielPolling.SaveBallotsFromDraft")
 
     async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
-        if update.effective_user.id != update.effective_chat.id:
+        user_info = UserStub(update.effective_user.id ) # type: ignore[union-attr]
+        if user_info.Id != update.effective_chat.id: # type: ignore[union-attr]
             raise OnlyPrivateMessageAllowed()
         
-        query = update.callback_query 
+        query:CallbackQuery = update.callback_query # type: ignore[assignment]
+        
         comp = self.CompWorker.FindCompetitionInPollingState(comp_id)
-        comp_info = self.CompWorker.GetCompetitionFullInfo(comp.Id)
-        action, file_id = self.ParseMenuQuery(qdata)
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        action, file_id = self.ParseMenuQuery(qdata)        
         poll_draft = None
         if action == "apply":
-            poll_draft = self.GetPollingDraft(comp.Id, update.effective_user.id)            
-            if not self.ValidatePollingDraft(poll_draft):
+            poll_draft = self.GetPollingDraft(comp.Id, user_info.Id)
+            if poll_draft is None:
+                raise LitGBException("user polling draft not found")
+            if not self.ValidatePollingDraft(poll_draft, user_info, comp_stat):
                 raise LitGBException("invalid polling draft")
             
-            voted_user_count = self.Db.DeleteUserBallots(comp.Id,  update.effective_user.id)
+            voted_user_count = self.Db.DeleteUserBallots(comp.Id, user_info.Id) 
             if voted_user_count >= self.MaxBallotsPerPolling:
                 await query.answer("Достигнут лимит количества проголосовавших")
                 return  
-            self.SaveBallotsFromDraft(comp_info.Comp, update.effective_user.id, poll_draft)
+            self.SaveBallotsFromDraft(comp, user_info.Id, poll_draft)
         elif action == "discard_draft":
-            self.Db.SaveUserPollingDraft(comp.Id, update.effective_user.id, "")
+            self.Db.SaveUserPollingDraft(comp.Id, user_info.Id, "")
         elif action == "select1":
-            poll_draft = self.GetPollingDraft(comp.Id, update.effective_user.id)
+            poll_draft = self.GetPollingDraft(comp.Id, user_info.Id)
             if not (poll_draft is None):
                 raise LitGBException("select1 action not allowed on not empty draft")
-            self.SavePollingDraft(comp.Id, update.effective_user.id, {'pos1': file_id})
+            self.SavePollingDraft(comp.Id, user_info.Id, {'pos1': file_id}) 
         elif action == "select2":
-            poll_draft = self.GetPollingDraft(comp.Id, update.effective_user.id)
+            poll_draft = self.GetPollingDraft(comp.Id, user_info.Id)
             if poll_draft is None:
                 raise LitGBException("select1 action not allowed on empty draft")
             if poll_draft['pos1'] == file_id:
                 raise LitGBException("duplecate pos1 and pos2")
             poll_draft['pos2'] = file_id
-            self.SavePollingDraft(comp.Id, update.effective_user.id, poll_draft)
+            self.SavePollingDraft(comp.Id, user_info.Id, poll_draft)
         else:
             raise LitGBException("unknown action: "+action)
         
-        updated_msgtext, _ = self.GetPollingMessageText(comp, comp_info.Stat, update)
+        updated_msgtext = self.GetPollingMessageText(comp, comp_stat, update, poll_draft)
 
         
         await query.answer("")
         await query.edit_message_text(
             text = updated_msgtext,
-            reply_markup = self.MakeKeyboard(update, comp, comp_info.Stat, poll_draft))
+            reply_markup = self.MakeKeyboard(update, comp, comp_stat, poll_draft))
         
     def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:        
 
@@ -239,14 +246,15 @@ class DefaultTrielPolling(ICompetitionPolling):
         
         if len(file_scores.keys()) == 1:
             file_id = list(file_scores.keys())[0]
-            f1_author = comp_stat.GetFileSubmitter(file_id)
+            f1_author = comp_stat.EnsureFileSubmitterExists(file_id)
+            
             f1 = PollingFileResults(1, file_id, file_scores[file_id])
             return PollingResults([f1_author], [], losers, [f1])
 
         file_ids = list(file_scores.keys())
         if len(file_scores.keys()) == 2:
-            f1_author = comp_stat.GetFileSubmitter(file_ids[0])
-            f2_author = comp_stat.GetFileSubmitter(file_ids[1])
+            f1_author = comp_stat.EnsureFileSubmitterExists(file_ids[0])
+            f2_author = comp_stat.EnsureFileSubmitterExists(file_ids[1])
 
             f1 = PollingFileResults(0, file_ids[0], file_scores[file_ids[0]])
             f2 = PollingFileResults(0, file_ids[1], file_scores[file_ids[1]])
@@ -294,16 +302,16 @@ class DefaultTrielPolling(ICompetitionPolling):
         winners = []
         half_winners = []
         if file_table[2].RatingPos > file_table[1].RatingPos:
-            losers.append(comp_stat.GetFileSubmitter(file_table[2].FileId))
+            losers.append(comp_stat.EnsureFileSubmitterExists(file_table[2].FileId))
 
         if file_table[1].RatingPos > file_table[0].RatingPos:
-            winners.append(comp_stat.GetFileSubmitter(file_table[0].FileId))
+            winners.append(comp_stat.EnsureFileSubmitterExists(file_table[0].FileId))
         else:
-            half_winners.append(comp_stat.GetFileSubmitter(file_table[1].FileId))
-            half_winners.append(comp_stat.GetFileSubmitter(file_table[0].FileId))
+            half_winners.append(comp_stat.EnsureFileSubmitterExists(file_table[1].FileId))
+            half_winners.append(comp_stat.EnsureFileSubmitterExists(file_table[0].FileId))
 
         if file_table[2].RatingPos == file_table[0].RatingPos:    
-            half_winners.append(comp_stat.GetFileSubmitter(file_table[2].FileId))
+            half_winners.append(comp_stat.EnsureFileSubmitterExists(file_table[2].FileId))
 
         return PollingResults(winners, half_winners, losers, file_table)
     

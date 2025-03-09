@@ -26,19 +26,22 @@ class DefaultClosed4Polling(ICompetitionPolling):
         return msgtext
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
-        keyboard = []
+        keyboard:list[list[InlineKeyboardButton]] = []
         return InlineKeyboardMarkup(keyboard)              
     
     async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
-
-        msgtext = self.GetPollingMessageText(comp, comp_info.PollingHandler.Config, update)
+        poll_handler = self.CompWorker.GetCompetitionPollingHandler(comp)
+        comp_stat = self.Db.GetCompetitionStat(comp.Id)
+        msgtext = self.GetPollingMessageText(comp, poll_handler.Config, update)
 
         
         if send_reply:
-            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))        
+            if  update.message is None:
+                raise LitGBException("message is Update is None")
+            await update.message.reply_text(msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_stat))        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_info.Stat))    
+            await context.bot.send_message(
+                update.effective_chat.id, msgtext, reply_markup=self.MakeKeyboard(update, comp, comp_stat))    # type: ignore[union-attr]
 
     async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
         pass

@@ -60,11 +60,13 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
             for file in files:                
                 await self.SendFB2(file, chat_id, context)
 
-    async def SendMergedSubmittedFiles(self, chat_id:int, comp_id:str, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
-        section_filenames = []
+    async def SendMergedSubmittedFiles(self, chat_id:int, comp_id:int, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE):
+        section_filenames:list[str] = []
 
         for files in comp_stat.SubmittedFiles.values():
-            for file in files:                
+            for file in files:  
+                if file.FilePath is None:
+                    raise LitGBException("file deleted (SendMergedSubmittedFiles)")
                 section_filenames.append(file.FilePath)
 
         merged_fb2_filepath = None
@@ -91,7 +93,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
     async def CheckClosedCompetitionConfirmation(self, 
             comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE) -> CompetitionInfo:
          
-         if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)):
+         if (len(comp_stat.RegisteredMembers) >= comp.DeclaredMemberCount) and (not (comp.ChatId is None)): # type: ignore[operator]
             comp = self.Db.ConfirmCompetition(comp.Id)
             await self.AfterConfirmCompetition(comp, context)
             
@@ -216,7 +218,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         file_results.sort(key=lambda x: x.RatingPos)
         message_text = "Результаты конкурса #"+str(comp.Id)+"\n"
         for file_info in file_results:
-            finfo = comp_stat.GetFileInfo(file_info.FileId)
+            finfo = comp_stat.EnsureFileExists(file_info.FileId)            
             message_text += "\n№"+str(file_info.RatingPos)+". Баллы "+str(file_info.Score)+": [#"+str(finfo.Id)+"] "+finfo.NameForMessage()
 
         await context.bot.send_message(chat_id, message_text)
@@ -261,7 +263,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         await self.ShowFileAuthors(comp, comp_stat, context)
         await self.ShowBallots(comp, context, comp.ChatId)
         
-    def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling:        
+    def ChooseNewPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> ICompetitionPolling|None:        
         member_count = comp_stat.SubmittedMemberCount()
 
         for handler in self.PollingHandlers.values():
@@ -270,6 +272,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
                     new_comp = self.Db.SetPollingSchema(comp.Id, handler.Config.Id)
                     comp.PollingScheme = new_comp.PollingScheme
                     return handler
+        return None        
 
     async def RecheckPollingSchema(self, comp:CompetitionInfo, comp_stat:CompetitionStat, context: ContextTypes.DEFAULT_TYPE): 
 
@@ -277,7 +280,7 @@ class CompetitionService(CompetitionWorkerImplementation, FileService):
         if comp_stat.SubmittedMemberCount() < polling_handler.GetMinimumMemberCount():
             new_polling_handler = self.ChooseNewPollingSchema(comp, comp_stat)
             if new_polling_handler is None:
-                raise LitGBException("Конкурс не может продолжаться, потому что выбранная схема голосования не подходит для текущего количества участников ("+str(comp_stat.SubmittedFileCount())+"), а новая схема не была найдена.")
+                raise LitGBException("Конкурс не может продолжаться, потому что выбранная схема голосования не подходит для текущего количества участников ("+str(comp_stat.SubmittedFileCount)+"), а новая схема не была найдена.")
             message_text = "Для конкурса #"+str(comp.Id)+" установлена новая схема голосования, так как старая схема не подходит для текущего количества участников."
             message_text+= "\n\nНовая схема голосования: "+new_polling_handler.Config.Title+" (id:"+str(new_polling_handler.Config.Id)+")"
             await context.bot.send_message(comp.ChatId, message_text)

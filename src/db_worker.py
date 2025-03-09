@@ -197,12 +197,24 @@ class  CompetitionStat:
                     return f
         return None
     
+    def EnsureFileExists(self, id:int) -> FileInfo:
+        result = self.GetFileInfo(id)
+        if result is None:
+            raise LitGBException("file not registered in competition")
+        return result
+    
     def GetFileSubmitter(self, id:int) -> UserInfo|None:
         for u, fl in self.SubmittedFiles.items():
             for f in fl:
                 if f.Id == id:
                     return u
-        return None        
+        return None      
+
+    def EnsureFileSubmitterExists(self, id:int) -> UserInfo:
+        result = self.GetFileSubmitter(id)
+        if result is None:
+            raise LitGBException("file not found in competition")
+        return result
 
 class DbWorkerService:   
     def __init__(self, config:dict):

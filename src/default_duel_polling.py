@@ -1,6 +1,6 @@
 from competition_polling import ICompetitionPolling, PollingResults
 from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, UserStub, PollingSchemaInfo, PollingFileResults, FileBallot
-from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import re
 from litgb_exception import LitGBException
@@ -24,7 +24,7 @@ class DefaultDuelPolling(ICompetitionPolling):
     def MakeQueryString(self, comp_id:int, query:str) -> str:
         return ICompetitionPolling.MakeMenuQuery(self.Config.Id, comp_id, query)
     
-    def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, update: Update) -> tuple[str, int]:
+    def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, chat_id:int) -> tuple[str, int]:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, self.Config)
 
         voted_user_count = self.Db.GetVotedUserCount(comp.Id)
@@ -33,9 +33,9 @@ class DefaultDuelPolling(ICompetitionPolling):
         if voted_user_count >= self.MaxBallotsPerPolling:
             msgtext += "\n❗️ Достигнут лимит количества проголосовавших!"
         
-        if update.effective_user.id == update.effective_chat.id:
+        if user_id == chat_id:
             competition_ballots = self.Db.SelectCompetitionBallots(comp.Id)
-            user_ballots = competition_ballots.get(UserStub(update.effective_user.id), [])
+            user_ballots = competition_ballots.get(UserStub(user_id), [])
             if len(user_ballots) > 0:
                 file = self.Db.FindFile(user_ballots[0].FileId)
                 if file is None:
@@ -43,21 +43,21 @@ class DefaultDuelPolling(ICompetitionPolling):
                 else:    
                     msgtext += "\n\nВаш голос за рассказ: #"+str(file.Id)+" "+file.NameForMessage()
             else:
-                if not comp_stat.IsUserSubmitted(update.effective_user.id):
+                if not comp_stat.IsUserSubmitted(user_id):
                     msgtext += "\n\nВы ещё не голосовали в этом конкурсе."
                 else:
                     msgtext += "\n\nВам нельзя голосовать, потому что вы автор одного из рассказов."    
 
         return (msgtext, voted_user_count)
 
-    def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
+    def MakeKeyboard(self, user_id:int, chat_id:int, comp:CompetitionInfo, comp_stat:CompetitionStat) -> InlineKeyboardMarkup:
         keyboard = []
 
         vote_buttons_allowed = False
-        if update.effective_chat.id != update.effective_user.id:
+        if user_id != chat_id:
             vote_buttons_allowed = True
         else:
-            vote_buttons_allowed = not comp_stat.IsUserSubmitted(update.effective_chat.id)
+            vote_buttons_allowed = not comp_stat.IsUserSubmitted(chat_id)
 
         if vote_buttons_allowed:
             for files in comp_stat.SubmittedFiles.values():
@@ -66,51 +66,56 @@ class DefaultDuelPolling(ICompetitionPolling):
 
         return InlineKeyboardMarkup(keyboard)
 
-    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):
-        comp_info = self.CompWorker.GetCompetitionFullInfo(comp)        
+    async def PollingMessageHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp:CompetitionInfo, send_reply:bool):           
 
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
-        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_stat, update)
+        msgtext, voted_user_count = self.GetPollingMessageText(comp, comp_stat, update.effective_user.id, update.effective_chat.id)  # type: ignore[union-attr]
 
         keybd =InlineKeyboardMarkup([])
         if voted_user_count < self.MaxBallotsPerPolling:
-            keybd = self.MakeKeyboard(update, comp, comp_info.Stat)
+            keybd = self.MakeKeyboard(update.effective_user.id, update.effective_chat.id, comp, comp_stat)  # type: ignore[union-attr]
             
         if send_reply:
+            if update.message is None:
+                raise LitGBException("message in Update is None")
             await update.message.reply_text(msgtext, reply_markup=keybd)        
         else:        
-            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=keybd)
+            await context.bot.send_message(update.effective_chat.id, msgtext, reply_markup=keybd) # type: ignore[union-attr]
 
     @staticmethod
     def ParseMenuQuery(query:str) -> int:
         try:
             m = DefaultDuelPolling.MenuQueryRegex.match(query)
+            if m is None:
+                raise LitGBException("DefaultDuelPolling: invalid polling menu query (1)")    
             return int(m.group(1))
         except BaseException as ex:
-            raise LitGBException("DefaultDuelPolling: invalid polling menu query")             
+            raise LitGBException("DefaultDuelPolling: invalid polling menu query (2)") 
 
     async def MenuHandler(self, update: Update, context: ContextTypes.DEFAULT_TYPE, comp_id:int, qdata:str):
+
+        user_id:int = update.effective_user.id # type: ignore[union-attr]
         file_id = self.ParseMenuQuery(qdata)
         comp = self.CompWorker.FindCompetitionInPollingState(comp_id)
         comp_stat = self.Db.GetCompetitionStat(comp.Id)
 
-        query = update.callback_query 
-        if comp_stat.IsUserSubmitted(update.effective_user.id):
+        query:CallbackQuery = update.callback_query # type: ignore[assignment]
+        if comp_stat.IsUserSubmitted(user_id):
             await query.answer("Участникам нельзя голосовать в дуэли")
             return
 
-        self.Db.EnsureUserExists(update.effective_user.id)
-        voted_user_count = self.Db.DeleteUserBallots(comp.Id, update.effective_user.id)
+        self.Db.EnsureUserExists(user_id) 
+        voted_user_count = self.Db.DeleteUserBallots(comp.Id, user_id)
         if voted_user_count >= self.MaxBallotsPerPolling:
             await query.answer("Достигнут лимит количества проголосовавших")
             return
-        self.Db.InsertOrUpdateBallots([(comp.Id, update.effective_user.id, file_id, 1)])        
+        self.Db.InsertOrUpdateBallots([(comp.Id,user_id, file_id, 1)])
         
-        updated_msgtext, _ = self.GetPollingMessageText(comp, comp_stat, update)                     
+        updated_msgtext, _ = self.GetPollingMessageText(comp, comp_stat, user_id, update.effective_chat.id) # type: ignore[union-attr]
         await query.answer("Голос принят")
         await query.edit_message_text(
             text = updated_msgtext,
-            reply_markup = self.MakeKeyboard(comp))
+            reply_markup = self.MakeKeyboard(user_id, update.effective_chat.id, comp, comp_stat)) # type: ignore[union-attr]
         
     def CalcPollingResults(self, comp:CompetitionInfo, comp_stat:CompetitionStat) -> PollingResults:
         
@@ -128,8 +133,8 @@ class DefaultDuelPolling(ICompetitionPolling):
         if len(file_ids) != 2:
             raise LitGBException("actual file count in duel not eqaul to 2, file count: "+str(len(file_ids)))
         
-        f1_author = comp_stat.GetFileSubmitter(file_ids[0])
-        f2_author = comp_stat.GetFileSubmitter(file_ids[1])
+        f1_author = comp_stat.EnsureFileSubmitterExists(file_ids[0])
+        f2_author = comp_stat.EnsureFileSubmitterExists(file_ids[1])
 
         f1 = PollingFileResults(0, file_ids[0], file_scores[file_ids[0]])
         f2 = PollingFileResults(0, file_ids[1], file_scores[file_ids[1]])
