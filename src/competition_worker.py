@@ -5,7 +5,7 @@ from competition_polling import ICompetitionPolling
 
 
 class CompetitionFullInfo:
-    def __init__(self, comp:CompetitionInfo, stat:CompetitionStat|None, chat:ChatInfo|None, polling_handler:ICompetitionPolling|None): 
+    def __init__(self, comp:CompetitionInfo, stat:CompetitionStat, chat:ChatInfo|None, polling_handler:ICompetitionPolling|None): 
         self.Comp = comp
         self.Stat = stat
         self.Chat = chat

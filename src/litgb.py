@@ -156,12 +156,20 @@ class LitGBot(CompetitionService):
     @staticmethod
     def MakeExternalErrorMessage(ex: BaseException) -> str:
         return "❗️ Ошибка при выполнении команды: "+str(ex)
+    
+    def EnsureUserExists(self, update: Update) -> int:
+        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))   # type: ignore[union-attr]
+        return update.effective_user.id # type: ignore[union-attr]
+        
+    def EnsureChatExists(self, update: Update) -> int:
+        self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat))   # type: ignore[union-attr]
+        return update.effective_chat.id # type: ignore[union-attr]
 
     async def mystat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info("[MYSTAT] user id "+LitGBot.LogUserTitle(update)+", chat id "+LitGBot.LogChatTitle(update))
         self.MyStatLimits.Check(update)
 
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))   # type: ignore[union-attr]     
+        self.EnsureUserExists(update)
         user_info = self.Db.FindUser(update.effective_user.id) # type: ignore[union-attr]
         stat_message = "Статистика пользователя "+user_info.Title
         stat_message += "\n🏆 Побед: "+str(user_info.Wins)
@@ -304,9 +312,10 @@ class LitGBot(CompetitionService):
     def MakeFileTitle(filename:str) -> str:
         return filename
     
-    def CheckPrivateOnly(self, update: Update):
+    def CheckPrivateOnly(self, update: Update) -> int:
         if update.effective_user.id != update.effective_chat.id:  # type: ignore[union-attr]
             raise OnlyPrivateMessageAllowed()
+        return update.effective_chat.id # type: ignore[union-attr]
 
     async def downloader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):            
         logging.info("[DOWNLOADER] user id "+LitGBot.LogUserTitle(update))
@@ -322,8 +331,7 @@ class LitGBot(CompetitionService):
             if total_files_Size > self.FileStorage.FileTotalSizeLimit:
                 raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileStorage.FileTotalSizeLimit))
             
-            user_id = update.effective_user.id  # type: ignore[union-attr]
-            self.Db.EnsureUserExists(user_id, self.MakeUserTitle(update.effective_user))
+            user_id = self.EnsureUserExists(update)
 
             deleted_file_name = None
             flimit = self.Db.GetUserFileLimit(user_id)
@@ -478,12 +486,12 @@ class LitGBot(CompetitionService):
         self.FilesViewLimits.Check(update)
 
         self.DeleteOldFiles() 
-        self.CheckPrivateOnly(update) 
+        user_id = self.CheckPrivateOnly(update) 
         command:str = update.message.text or "" # type: ignore[assignment,union-attr]
         file_id = self.ParseSingleIntArgumentCommand(command, "/getfb2", 1, None) 
-        file = self.GetFileAndCheckAccess(file_id, update.effective_user.id) # type: ignore[union-attr]
+        file = self.GetFileAndCheckAccess(file_id, user_id) 
 
-        await self.SendFB2(file, update.effective_chat.id, context) # type: ignore[union-attr]
+        await self.SendFB2(file, user_id, context) 
 
 
     @staticmethod
@@ -700,8 +708,8 @@ class LitGBot(CompetitionService):
         self.FilesViewLimits.Check(update)
         self.DeleteOldFiles() 
         self.CheckPrivateOnly(update)
-        user_id = update.effective_user.id# type: ignore[union-attr]
-        self.Db.EnsureUserExists(user_id, self.MakeUserTitle(update.effective_user)) 
+        
+        user_id = self.EnsureUserExists(update)
 
         files = self.Db.GetFileList(user_id, 30) 
         if len(files) > 0:
@@ -712,7 +720,7 @@ class LitGBot(CompetitionService):
             await update.message.reply_text(  # type: ignore[union-attr] 
                 "✖️ У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
    
-    def ParseDeadlines(self, v:str, tz:pytz.timezone) -> tuple[datetime, datetime]:
+    def ParseDeadlines(self, v:str, tz:pytz._UTCclass | pytz.tzinfo.StaticTzInfo | pytz.tzinfo.DstTzInfo) -> tuple[datetime, datetime]:
         deadlines = v.strip().split("/", 1)
         if len(deadlines) != 2:
             raise LitGBException("неправильный формат дедлайнов")
@@ -728,67 +736,70 @@ class LitGBot(CompetitionService):
         
         return (d1, d2)
 
-    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:                
-        logging.info("[HANDLE_TEXT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))        
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):                
+        logging.info("[HANDLE_TEXT] user id "+LitGBot.LogUserTitle(update))
 
-        if update.effective_user.id in self.UserConversations:            
-            if update.effective_user.id != update.effective_chat.id:
+        user_id = self.EnsureUserExists(update)
+        msg:Message = update.message  # type: ignore[assignment]
+        source_text = (msg.text or "").strip(" \t")
+        if user_id in self.UserConversations:            
+            if user_id != update.effective_chat.id: # type: ignore[union-attr]
                 return
-            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))     
-            convers = self.UserConversations.pop(update.effective_user.id)
+               
+            convers = self.UserConversations.pop(user_id)
             if not (convers.SetTitleFor is None):
-                logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+update.message.text) 
-                if len(update.message.text) > self.MaxFileNameSize:
+                logging.info("[FILE_SETTITLE] new title for file #"+str(convers.SetTitleFor)+": "+ source_text) 
+                if len(source_text) > self.MaxFileNameSize:
                     raise LitGBException("Имя файла слишком длинное. Максимальная разрешённая длина: "+str(self.MaxFileNameSize))
-                self.Db.SetFileTitle(convers.SetTitleFor, update.message.text.strip(" \t"))
-                await update.message.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: "+update.message.text)            
+                self.Db.SetFileTitle(convers.SetTitleFor, source_text)
+                await msg.reply_text("Новое имя файла #"+str(convers.SetTitleFor)+" установлено: " + source_text)            
             elif not (convers.SetSubjectFor is None):
-                new_subj = update.message.text.strip()
-                logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+new_subj) 
-                if len(new_subj) < 3:
+                
+                logging.info("[COMP_SETSUBJ] new subject for competition #"+str(convers.SetSubjectFor)+": "+source_text) 
+                if len(source_text) < 3:
                     raise LitGBException("Тема не может быть меньше трёх символов")
-                if len(new_subj) > self.MaxSubjectLength:
+                if len(source_text) > self.MaxSubjectLength:
                     raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectLength)+" символов")
-                comp = self.FindPropertyChangableCompetition(convers.SetSubjectFor, update.effective_user.id)
-                self.Db.SetCompetitionSubject(comp.Id, new_subj)
-                await update.message.reply_text("✅ Новая тема для конкурса #"+str(comp.Id)+" установлена: "+new_subj)
+                comp = self.FindPropertyChangableCompetition(convers.SetSubjectFor, user_id)
+                self.Db.SetCompetitionSubject(comp.Id, source_text)
+                await msg.reply_text("✅ Новая тема для конкурса #"+str(comp.Id)+" установлена: "+source_text)
             elif not (convers.SetSubjectExtFor is None):
-                new_subjext = update.message.text.strip()
-                logging.info("[COMP_SETSUBJEXT] new subject for competition #"+str(convers.SetSubjectExtFor)+": "+new_subjext) 
-                if len(new_subjext) < 3:
+
+                logging.info("[COMP_SETSUBJEXT] new subject for competition #"+str(convers.SetSubjectExtFor)+": "+source_text) 
+                if len(source_text) < 3:
                     raise LitGBException("Пояснение не может быть меньше трёх символов")
-                if len(new_subj) > self.MaxSubjectExtLength:
+                if len(source_text) > self.MaxSubjectExtLength:
                     raise LitGBException("Тема не может быть больше "+str(self.MaxSubjectExtLength)+" символов")                
-                comp = self.FindPropertyChangableCompetition(convers.SetSubjectExtFor, update.effective_user.id)
-                self.Db.SetCompetitionSubjectExt(comp.Id, new_subjext)
-                await update.message.reply_text("✅ Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n"+new_subjext)                
+                comp = self.FindPropertyChangableCompetition(convers.SetSubjectExtFor, user_id)
+                self.Db.SetCompetitionSubjectExt(comp.Id, source_text)
+                await msg.reply_text("✅ Новое пояснение для конкурса #"+str(comp.Id)+" установлено:\n\n" + source_text)                
             elif  not (convers.InputEntryTokenFor is None):    
-                token = update.message.text.strip()
-                logging.info("[INPUT_TOKEN] input entry token for competition #"+str(convers.SetSubjectFor)+": "+token) 
+                
+                logging.info("[INPUT_TOKEN] input entry token for competition #"+str(convers.SetSubjectFor)+": "+source_text) 
 
                 comp = self.FindJoinableCompetition(convers.InputEntryTokenFor)
-                if comp.EntryToken != token:
+                if comp.EntryToken != source_text:
                     raise LitGBException("неправильный входной токен")
                 
-                comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
+                comp_stat = self.Db.JoinToCompetition(comp.Id, user_id)
                 comp = await self.AfterJoinMember(comp, comp_stat, context)
-                await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
+                await msg.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
             elif  not (convers.SetDeadlinesFor is None):
-                new_deadlines = update.message.text.strip()
-                logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+new_deadlines) 
-                accept_files_deadline, polling_deadline = self.ParseDeadlines(new_deadlines, self.Timezone)
+                
+                logging.info("[COMP_SETSUBJEXT] new deadlines for competition #"+str(convers.SetDeadlinesFor)+": "+source_text) 
+                accept_files_deadline, polling_deadline = self.ParseDeadlines(source_text, self.Timezone)
                 now_ts = datetime.now(timezone.utc)
                 if polling_deadline > now_ts + self.MaxAllowedCompetitionDeadlineFutureInterval:
                     raise LitGBException("дедлайн голосования слишком далеко")
                 if accept_files_deadline < now_ts + self.MinAllowedCompetitionDeadlineFutureInterval:
                     raise LitGBException("дедлайн приёма файлов слишком близко")
-                comp = self.FindDeadlinesChangableCompetition(convers.SetDeadlinesFor, update.effective_user.id)
+                comp = self.FindDeadlinesChangableCompetition(convers.SetDeadlinesFor, user_id)
                 if not (comp.ChatId is None):
-                    if not self.CheckCompetitionDeadlines(comp.ChatId,):
+                    if not self.CheckCompetitionDeadlines(comp.ChatId, comp):
                         raise LitGBException("новые дедлайны пересекаются с дедлайнами других конкурсов")
                     
                 comp = self.Db.SetDeadlines(comp.Id, accept_files_deadline, polling_deadline)
-                await update.message.reply_text("✅ Дедлайны для конкурса #"+str(comp.Id)+" установлены: "+DatetimeToString(comp.AcceptFilesDeadline)+" / "+DatetimeToString(comp.PollingDeadline))
+                await msg.reply_text("✅ Дедлайны для конкурса #"+str(comp.Id)+" установлены: "+DatetimeToString(comp.AcceptFilesDeadline)+" / "+DatetimeToString(comp.PollingDeadline))
     
     def GetDefaultAcceptDeadlineForClosedCompetition(self) -> datetime:
         return datetime.now(timezone.utc)+self.DefaultAcceptDeadlineTimedelta
@@ -824,11 +835,12 @@ class LitGBot(CompetitionService):
 
         return True
     
-    def ChooseDefaultPollingSchemaForOpen(self) -> ICompetitionPolling:        
+    def ChooseDefaultPollingSchemaForOpen(self) -> PollingSchemaInfo:        
         
         for handler in self.PollingHandlers.values():
             if handler.ForOpenType():
                 return handler.Config
+        raise LitGBException("default polling scheme for open competition type not found") 
 
                     
     def ChooseDefaultPollingSchemaForClosed(self, member_count:int) -> PollingSchemaInfo:
@@ -840,21 +852,22 @@ class LitGBot(CompetitionService):
         raise LitGBException("default polling schema not found")           
 
     async def create_closed_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[CREATECLOSED] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
-        self.CreateCompetitionLimits.Check(update)
+        logging.info("[CREATECLOSED] user id "+LitGBot.LogUserTitle(update)) 
+        self.CreateCompetitionLimits.Check(update)        
         
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
+        user_id = self.EnsureUserExists(update)
         
-        member_count = self.ParseSingleIntArgumentCommand(update.message.text, "/create_closed_competition", 2, 15)
-        chat_id = update.effective_chat.id
-        if chat_id == update.effective_user.id:
+        msg:Message = update.message # type: ignore[assignment]
+        member_count = self.ParseSingleIntArgumentCommand(msg.text or "", "/create_closed_competition", 2, 15)
+        chat_id = update.effective_chat.id # type: ignore[union-attr]
+        if chat_id == user_id:
             chat_id = None
         accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()
         if not (chat_id is None):
-            self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat)) 
+            self.Db.EnsureChatExists(chat_id, self.MakeChatTitle(update.effective_chat)) 
             accept_deadline = self.SelectFirstAvailableAcceptDeadlineForChat(chat_id, accept_deadline, 172800)
         comp = self.Db.CreateCompetition(
-            update.effective_user.id, 
+            user_id, 
             chat_id, 
             accept_deadline,
             accept_deadline+self.DefaultPollingStageTimedelta,
@@ -867,24 +880,25 @@ class LitGBot(CompetitionService):
         logging.info("[CREATECLOSED] competition created with id "+str(comp.Id))
         if not (chat_id is None):
             comp = await self.AfterCompetitionAttach(comp, context)
-        await update.message.reply_text("✔️ Создан новый закрытый конкурс #"+str(comp.Id)) 
+        await msg.reply_text("✔️ Создан новый закрытый конкурс #"+str(comp.Id)) 
         
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))            
+        await msg.reply_text(
+            self.comp_menu_message(
+                comp_info, user_id, update.effective_chat.id), # type: ignore[union-attr]
+            reply_markup=self.comp_menu_keyboard(
+                "singlemode", 0, comp_info.Stat, [comp], user_id, update.effective_chat.id))   # type: ignore[union-attr]         
         await self.SendHelpAfterCreateCompetition(comp, update, context)
         
     async def create_open_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[CREATEOPEN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[CREATEOPEN] user id "+LitGBot.LogUserTitle(update)) 
         self.CreateCompetitionLimits.Check(update)
-        self.CheckPrivateOnly(update)
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
-
+        chat_id = self.CheckPrivateOnly(update)
+        user_id = self.EnsureUserExists(update)
         
         accept_deadline = self.GetDefaultAcceptDeadlineForClosedCompetition()        
         comp = self.Db.CreateCompetition(
-            update.effective_user.id, 
+            user_id, 
             None, 
             accept_deadline,
             accept_deadline+self.DefaultPollingStageTimedelta,
@@ -895,112 +909,122 @@ class LitGBot(CompetitionService):
             "тема не задана",
             self.ChooseDefaultPollingSchemaForOpen().Id)
         logging.info("[CREATEOPEN] competition created with id "+str(comp.Id))        
-        await update.message.reply_text("✔️ Создан новый открытый конкурс #"+str(comp.Id)) 
+        msg:Message = update.message # type: ignore[assignment]
+        await msg.reply_text("✔️ Создан новый открытый конкурс #"+str(comp.Id)) 
 
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))       
+        await msg.reply_text(
+            self.comp_menu_message(
+                comp_info, user_id, chat_id), 
+            reply_markup=self.comp_menu_keyboard(
+                "singlemode", 0, comp_info.Stat, [comp], user_id, chat_id))
         await self.SendHelpAfterCreateCompetition(comp, update, context)
         
     async def attach_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[ATTACH] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[ATTACH] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionChangeLimits.Check(update)
-        if update.effective_user.id == update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+        user_id = self.EnsureUserExists(update)
+        chat_id = self.EnsureChatExists(update)
+        msg:Message = update.message # type: ignore[assignment]
+        if user_id == chat_id:
+            await msg.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
             return
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
-        self.Db.EnsureChatExists(update.effective_chat.id, self.MakeChatTitle(update.effective_chat))    
 
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/attach_competition")
+        comp_id = self.ParseSingleIntArgumentCommand(msg.text or "", "/attach_competition")
         comp = self.FindNotAttachedCompetition(comp_id)
-        if comp.CreatedBy != update.effective_user.id:
+        if comp.CreatedBy != user_id:
             raise LitGBException("Привязывать конкурс к чату может только создатель конкурса")
-        if not self.CheckCompetitionDeadlines(update.effective_chat.id, comp):
+        if not self.CheckCompetitionDeadlines(chat_id, comp):
             raise LitGBException("Нельзя привязать конкурс к чату, если его период голосования пересекается с периодами голосования других конкурсов в чате")
-        comp = self.Db.AttachCompetition(comp.Id, update.effective_chat.id)
+        comp = self.Db.AttachCompetition(comp.Id, chat_id)
         await self.AfterCompetitionAttach(comp, context)
         
-        comp_info = self.GetCompetitionFullInfo(comp)                      
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
+        comp_info = self.GetCompetitionFullInfo(comp)                              
+        await msg.reply_text( 
+            self.comp_menu_message(comp_info, user_id, chat_id), 
+            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], user_id, chat_id))
                     
         
     async def competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[COMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[COMPS] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
-        
+        msg:Message = update.message # type: ignore[assignment]
+
+        user_id =  update.effective_user.id # type: ignore[union-attr]  
+        chat_id =  update.effective_chat.id # type: ignore[union-attr]  
         list_type = "allactiveattached"
-        if update.effective_user.id != update.effective_chat.id:            
+        if user_id != chat_id:            
             list_type = "chatrelated"
 
-        comp_list = self.GetCompetitionList(list_type, update.effective_user.id, update.effective_chat.id)        
+        comp_list = self.GetCompetitionList(list_type, user_id, chat_id)        
         if len(comp_list) == 0:
-            await update.message.reply_text("✖️ Нет конкурсов")
+            await msg.reply_text("✖️ Нет конкурсов")
             return  
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard(list_type, 0, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
+        await msg.reply_text(
+            self.comp_menu_message(comp_info, user_id, chat_id), 
+            reply_markup=self.comp_menu_keyboard(list_type, 0, comp_info.Stat, comp_list, user_id, chat_id))
 
 
     async def competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[COMP] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[COMP] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
-        
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition")    
+        msg:Message = update.message # type: ignore[assignment]
+        comp_id = self.ParseSingleIntArgumentCommand(msg.text or "", "/competition")    
 
         comp = self.FindCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
+        await msg.reply_text(
+            self.comp_menu_message(
+                comp_info, update.effective_user.id, update.effective_chat.id), # type: ignore[union-attr]  
+            reply_markup=self.comp_menu_keyboard(
+                "singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id)) # type: ignore[union-attr]  
         
     async def competition_polling(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[COMPPOLL] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[COMPPOLL] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
         
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_polling")    
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text or "", "/competition_polling")  # type: ignore[union-attr]  
 
         comp = self.FindCompetitionInPollingState(comp_id)
         polling_handler = self.GetCompetitionPollingHandler(comp)
         await polling_handler.PollingMessageHandler(update, context, comp, True)        
         
     async def results(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
-        logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[RESULT] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/results")  
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text or "", "/results")   # type: ignore[union-attr]
         comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
-        if not comp_info.Stat.IsUserSubmitted(update.effective_user.id):
-            if comp.ChatId != update.effective_chat.id:
+        if not comp_info.Stat.IsUserSubmitted(update.effective_user.id):  # type: ignore[union-attr]
+            if comp.ChatId != update.effective_chat.id: # type: ignore[union-attr]
                 raise LitGBException("⛔️ Результаты могут быть выведены только в чате, к которому привязан конкурс, или по запросу одного из участников")
         results = self.Db.SelectCompetitionResults(comp.Id)
-        await self.ShowResults(comp_info.Comp, comp_info.Stat, results, context, update.effective_chat.id)
+        await self.ShowResults(comp_info.Comp, comp_info.Stat, results, context, update.effective_chat.id)  # type: ignore[union-attr]
 
     async def ballots(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
-        logging.info("[RESULT] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[RESULT] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionBallotsViewLimits.Check(update)
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/ballots")  
+        msg:Message = update.message # type: ignore[assignment]
+        comp_id = self.ParseSingleIntArgumentCommand(msg.text or "", "/ballots")  
         comp = self.FindFinishedSuccessCompetition(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text("В разработке")
+        await msg.reply_text("В разработке")
         
         
     async def competition_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.info("[COMPFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[COMPFILES] user id "+self.LogUserTitle(update)) 
         self.CompetitionFilesLimits.Check(update)      
 
-        comp_id = self.ParseSingleIntArgumentCommand(update.message.text, "/competition_files")  
+        comp_id = self.ParseSingleIntArgumentCommand(update.message.text or "", "/competition_files") # type: ignore[union-attr] 
         comp = self.FindCompetitionInPollingState(comp_id)
         comp_info = self.GetCompetitionFullInfo(comp)
-        if update.effective_user.id != update.effective_chat.id:
-            if update.effective_chat.id != comp.ChatId:
+        if update.effective_user.id != update.effective_chat.id: # type: ignore[union-attr]
+            if update.effective_chat.id != comp.ChatId: # type: ignore[union-attr]
                 raise LitGBException("Команду можно выполнить только в чате, к которому привязан конкурс")
         else:
-            if not comp_info.Stat.IsUserSubmitted(update.effective_user.id):
+            if not comp_info.Stat.IsUserSubmitted(update.effective_user.id): # type: ignore[union-attr]
                 raise LitGBException("Команду может только участник конкурса")
 
         
@@ -1008,67 +1032,71 @@ class LitGBot(CompetitionService):
         await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
 
     async def current_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.info("[CURRFILES] user id "+self.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[CURRFILES] user id "+self.LogUserTitle(update)) 
         self.CompetitionFilesLimits.Check(update)      
 
         
-        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id) # type: ignore[union-attr]
         if comp is None:
-            await update.message.reply_text("✖️ Нет конкурсов")
-            return
+            await update.message.reply_text("✖️ Нет конкурсов") # type: ignore[union-attr]
+            return 
         comp_info = self.GetCompetitionFullInfo(comp)
         await self.SendSubmittedFiles(comp.ChatId, comp_info.Stat, context)
         await self.SendMergedSubmittedFiles(comp.ChatId, comp.Id, comp_info.Stat, context)
 
         
     async def current_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[CURRENT] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        logging.info("[CURRENT] user id "+LitGBot.LogUserTitle(update))
         self.CompetitionViewLimits.Check(update)
-        if update.effective_user.id == update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+        msg:Message = update.message # type: ignore[assignment]
+        if update.effective_user.id == update.effective_chat.id: # type: ignore[union-attr]
+            await msg.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
             return
 
-        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id) # type: ignore[union-attr]
         if comp is None:
-            await update.message.reply_text("✖️ Нет конкурсов")
+            await msg.reply_text("✖️ Нет конкурсов")
             return
         comp_info = self.GetCompetitionFullInfo(comp)                      
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id))
+        await msg.reply_text(
+            self.comp_menu_message(
+                comp_info, update.effective_user.id, update.effective_chat.id),  # type: ignore[union-attr]
+            reply_markup=self.comp_menu_keyboard(
+                "singlemode", 0, comp_info.Stat, [comp], update.effective_user.id, update.effective_chat.id)) # type: ignore[union-attr]
 
     async def current_polling(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:     
-        logging.info("[CURPOLL] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[CURPOLL] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionPollViewLimits.Check(update)
-        if update.effective_user.id == update.effective_chat.id:
-            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла")
+        if update.effective_user.id == update.effective_chat.id: # type: ignore[union-attr]
+            await update.message.reply_text("⛔️ Выполнение команды в личных сообщениях бота лишено смысла") # type: ignore[union-attr]
             return
-        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)    
+        comp = self.Db.GetCurrentPollingCompetitionInChat(update.effective_chat.id)  # type: ignore[union-attr]
         if comp is None:
-            await update.message.reply_text("✖️ Нет конкурсов в стадии голосования")
+            await update.message.reply_text("✖️ Нет конкурсов в стадии голосования") # type: ignore[union-attr]
             return
         
         polling_handler = self.GetCompetitionPollingHandler(comp)
         await polling_handler.PollingMessageHandler(update, context, comp, True)      
         
     async def mycompetitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[MYCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[MYCOMPS] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
-        self.CheckPrivateOnly(update)
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
+        chat_id = self.CheckPrivateOnly(update)
+        user_id = self.EnsureUserExists(update)
+        msg:Message = update.message # type: ignore[assignment]
 
-        comp_list = self.GetCompetitionList("my", update.effective_user.id, update.effective_chat.id)        
+        comp_list = self.GetCompetitionList("my", user_id, chat_id)        
         if len(comp_list) == 0:
-            await update.message.reply_text("✖️ Нет конкурсов")
+            await msg.reply_text("✖️ Нет конкурсов")
             return
         comp = comp_list[0]
         comp_info = self.GetCompetitionFullInfo(comp)
-        await update.message.reply_text(
-            self.comp_menu_message(comp_info, update.effective_user.id, update.effective_chat.id), 
-            reply_markup=self.comp_menu_keyboard("my", 0, comp_info.Stat, comp_list, update.effective_user.id, update.effective_chat.id))
+        await msg.reply_text(
+            self.comp_menu_message(comp_info, user_id, chat_id), 
+            reply_markup=self.comp_menu_keyboard("my", 0, comp_info.Stat, comp_list, user_id, chat_id))
 
     async def joinable_competitions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[JCOMPS] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[JCOMPS] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)
         
         comp_list = self.GetCompetitionList("joinable", update.effective_user.id, update.effective_chat.id)        
@@ -1090,13 +1118,13 @@ class LitGBot(CompetitionService):
 
 
     async def join_to_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:         
-        logging.info("[JOIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[JOIN] user id "+LitGBot.LogUserTitle(update)) 
         self.CompetitionViewLimits.Check(update)        
 
         comp_id, token = self.ParseJoinToCompetitionCommand(update.message.text)        
         comp = self.FindJoinableCompetition(comp_id)
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
-        if comp.CreatedBy != update.effective_user.id:
+        user_id = self.EnsureUserExists(update)
+        if comp.CreatedBy != user_id:
             if not (comp.EntryToken is None):
                 if len(comp.EntryToken) > 0:
                     if comp.EntryToken != token:
@@ -1104,7 +1132,7 @@ class LitGBot(CompetitionService):
         comp_stat = self.Db.GetCompetitionStat(comp.Id)       
         if len(comp_stat.RegisteredMembers) >= self.MaximumCompetitionMemberCount:
             raise LitGBException("⛔️ В конкурсе может участвовать не больше " + str(self.MaximumCompetitionMemberCount)+" участников")        
-        comp_stat = self.Db.JoinToCompetition(comp.Id, update.effective_user.id)
+        comp_stat = self.Db.JoinToCompetition(comp.Id, user_id)
         comp = await self.AfterJoinMember(comp, comp_stat, context)
         await update.message.reply_text("✅ Заявлено участие в конкурсе #"+str(comp.Id))
 
