@@ -1,7 +1,7 @@
-from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup, Document, Message
+from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup, Document, Message, CallbackQuery
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
-from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, UserStub
+from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, UserStub, UserInfo
 import logging
 import json
 import time
@@ -508,10 +508,11 @@ class LitGBot(CompetitionService):
         return t1.lower() == t2.lower()
     
     @staticmethod
-    def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user_id:int, file:FileInfo) -> bool:
+    def IsFileAcceptableFromUser(comp:CompetitionInfo, comp_stat:CompetitionStat, user:UserStub, file:FileInfo) -> bool:
         if not comp.IsStarted():
             return False
-        submitted_files = comp_stat.SubmittedFiles.get(UserStub(user_id), [])
+        user_info:UserInfo = user # type: ignore[assignment]
+        submitted_files = comp_stat.SubmittedFiles.get(user_info, [])
         if len(submitted_files) >= comp.MaxFilesPerMember:
             return False
         
@@ -541,13 +542,13 @@ class LitGBot(CompetitionService):
         if not file.Locked:
             keyboard.append([InlineKeyboardButton('Удалить', callback_data='file_delete_'+file_id_str)])
             keyboard.append([InlineKeyboardButton('Установить название', callback_data='file_settitle_'+file_id_str)])
-
-            joined_competitions = self.Db.SelectUserRegisteredCompetitions(user_id, datetime.now(timezone.utc), datetime.now(timezone.utc)+timedelta(days=40))
+            user_info = UserStub(user_id)
+            joined_competitions = self.Db.SelectUserRegisteredCompetitions(user_info.Id, datetime.now(timezone.utc), datetime.now(timezone.utc)+timedelta(days=40))
             if len(joined_competitions) > 0:    
                 added_buttons = 0            
                 for comp in joined_competitions:
                     comp_stat = self.Db.GetCompetitionStat(comp.Id)
-                    if self.IsFileAcceptableFromUser(comp, comp_stat, user_id, file):
+                    if self.IsFileAcceptableFromUser(comp, comp_stat, user_info, file):
                         if (file.TextSize >= comp.MinTextSize) and (file.TextSize <= comp.MaxTextSize):
                             chat = self.Db.FindChat(comp.ChatId)
                             button_caption = self.MakeUseFileInCompetitionButtonCaption(comp, chat)
@@ -572,21 +573,23 @@ class LitGBot(CompetitionService):
 
     async def file_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
         logging.info("[file_menu_handler] user id "+LitGBot.LogUserTitle(update)) 
-        if update.effective_user.id != update.effective_chat.id:
+        user_id = update.effective_user.id  # type: ignore[union-attr]
+        if user_id != update.effective_chat.id: # type: ignore[union-attr]
             return        
         
-        query = update.callback_query                
+        query:CallbackQuery = update.callback_query  # type: ignore[assignment]              
         await query.answer()
         try:
-            if len(query.data) < 7:
-                raise LitGBException("invalid query.data value: "+query.data)
-            qdata = query.data[5:]
+            qdata = query.data or ""
+            if len(qdata) < 7:
+                raise LitGBException("invalid query.data value: "+qdata)
+            qdata = qdata[5:]
             params = qdata.split("_", 2)
 
             if params[0] == "show":
                 file_id = int(params[1])                
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
-                files = self.Db.GetFileList(update.effective_user.id, 30)
+                f = self.GetFileAndCheckAccess(file_id, user_id )
+                files = self.Db.GetFileList(user_id, 30)
                 if len(files)==0:                
                     raise LitGBException("file list empty")
                 
@@ -602,39 +605,39 @@ class LitGBot(CompetitionService):
                     raise LitGBException("file not found in file list")
                 await query.edit_message_text(
                             text=self.file_menu_message(f),
-                            reply_markup=self.file_menu_keyboard(file_index, files, update.effective_user.id))
+                            reply_markup=self.file_menu_keyboard(file_index, files, user_id))
             elif params[0] == "delete":  
                 file_id = int(params[1])                
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                f = self.GetFileAndCheckAccess(file_id, user_id )
                 if f.Locked:
                     raise LitGBException("file locked")                
                 self.DeleteFile(f)
             elif params[0] == "settitle":  
                 file_id = int(params[1])                
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id )
+                f = self.GetFileAndCheckAccess(file_id, user_id)
                 if f.Locked:
                     raise LitGBException("file locked")            
                 uconv = UserConversation()
                 uconv.SetTitleFor = f.Id
-                self.UserConversations[update.effective_user.id] = uconv
+                self.UserConversations[user_id] = uconv
                 await query.edit_message_text(
                     text="✏️ Введите новое название файла", reply_markup=InlineKeyboardMarkup([]))                
             elif params[0] == "fb2":
                 file_id = int(params[1])
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
-                await self.SendFB2(f, update.effective_chat.id, context)
+                f = self.GetFileAndCheckAccess(file_id, user_id)
+                await self.SendFB2(f, update.effective_chat.id, context) # type: ignore[union-attr]
             elif params[0] == "use":
                 file_id = int(params[1])
                 comp_id = int(params[2])
-                f = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+                f = self.GetFileAndCheckAccess(file_id, user_id)
                 comp = self.FindFileAcceptableCompetition(comp_id)
                 if (f.TextSize < comp.MinTextSize) or (f.TextSize > comp.MaxTextSize):
                     raise LitGBException("file not acceptable for competition")
                 comp_stat = self.Db.GetCompetitionStat(comp.Id)
-                if not self.IsFileAcceptableFromUser(comp, comp_stat, update.effective_user.id, f):
+                if not self.IsFileAcceptableFromUser(comp, comp_stat, UserStub(user_id), f):
                     raise LitGBException("file not acceptable for competition from this user")
                 
-                comp_stat = self.Db.UseFileInCompetition(comp.Id, update.effective_user.id, f.Id)            
+                comp_stat = self.Db.UseFileInCompetition(comp.Id, user_id, f.Id)            
                 await query.edit_message_text(
                     text="✅ Файл задействован в конкурсе #"+str(comp_id), reply_markup=InlineKeyboardMarkup([]))            
             else:
@@ -643,46 +646,53 @@ class LitGBot(CompetitionService):
             await query.edit_message_text(
                 text=self.error_menu_message(ex), reply_markup=InlineKeyboardMarkup([]))                    
         except BaseException as ex:    
-            logging.error("[file_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+ ". EXCEPTION: "+str(ex))       
+            logging.error("[file_menu_handler] user id "+LitGBot.LogUserTitle(update)+ ". EXCEPTION: "+str(ex))       
             await query.edit_message_text(
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([])) 
+            
+    def EnsureUserAllowedCommand(self, update: Update, cmd:str) -> Message|None:
+        suser_id = update.effective_user.id # type: ignore[union-attr]
+        if suser_id != update.effective_chat.id: # type: ignore[union-attr]
+            return None
+        if not (suser_id in self.Admins):
+            return None
+        return update.message
 
     async def set_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
-        if update.effective_user.id != update.effective_chat.id:
+        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update)) 
+        msg = self.EnsureUserAllowedCommand(update, "set_file_limit")
+        if msg is None:
             return
-        if not (update.effective_user.id in self.Admins):
-            return
-        user_id, limit = self.ParseTwoIntArgumentCommand(update.message.text, "/set_filelimit", 0)
+        
+        user_id, limit = self.ParseTwoIntArgumentCommand(msg.text or "", "/set_filelimit", 0)
         self.Db.SetUserFileLimit(user_id, limit)
-        await update.message.reply_text("Лимит у пользователя "+str(user_id)+" установлен в значение "+str(limit))
+        await msg.reply_text("Лимит у пользователя "+str(user_id)+" установлен в значение "+str(limit))
 
     async def set_allusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
-        if update.effective_user.id != update.effective_chat.id:
+        msg = self.EnsureUserAllowedCommand(update, "set_allusers_file_limit")
+        if msg is None:
             return
-        if not (update.effective_user.id in self.Admins):
-            return        
-        limit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_allusers_filelimit", 0, 30) 
+        
+        limit = self.ParseSingleIntArgumentCommand(msg.text or "", "/set_allusers_filelimit", 0, 30) 
         affected_users = self.Db.SetAllUsersFileLimit(limit)
-        await update.message.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
+        await msg.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
 
     async def set_newusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
-        if update.effective_user.id != update.effective_chat.id:
-            return
-        if not (update.effective_user.id in self.Admins):
-            return        
-        self.Db.DefaultNewUsersFileLimit = self.ParseSingleIntArgumentCommand(update.message.text, "/set_newusers_file_limit", 0, 30) 
-        await update.message.reply_text("Лимит файлов для всех новых пользователей установлен в значение "+str(self.Db.DefaultNewUsersFileLimit))
+        msg = self.EnsureUserAllowedCommand(update, "set_newusers_file_limit")
+        if msg is None:
+            return 
+        
+        self.Db.DefaultNewUsersFileLimit = self.ParseSingleIntArgumentCommand(msg.text or "", "/set_newusers_file_limit", 0, 30) 
+        await msg.reply_text("Лимит файлов для всех новых пользователей установлен в значение "+str(self.Db.DefaultNewUsersFileLimit))
         
 
-    async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))             
-        if update.effective_user.id != update.effective_chat.id:
-            return
-        if not (update.effective_user.id in self.Admins):
-            return        
+    async def kill_competition(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:        
+        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))
+        msg = self.EnsureUserAllowedCommand(update, "kill_competition")
+        if msg is None:
+            return       
         
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
@@ -690,16 +700,19 @@ class LitGBot(CompetitionService):
         self.FilesViewLimits.Check(update)
         self.DeleteOldFiles() 
         self.CheckPrivateOnly(update)
-        self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user)) 
+        user_id = update.effective_user.id# type: ignore[union-attr]
+        self.Db.EnsureUserExists(user_id, self.MakeUserTitle(update.effective_user)) 
 
-        files = self.Db.GetFileList(update.effective_user.id, 30)
+        files = self.Db.GetFileList(user_id, 30) 
         if len(files) > 0:
             files.sort(key=lambda x: x.Loaded)                
-            await update.message.reply_text(self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files, update.effective_user.id))   
+            await update.message.reply_text(   # type: ignore[union-attr] 
+                self.file_menu_message(files[0]), reply_markup=self.file_menu_keyboard(0, files, user_id)) 
         else:
-            await update.message.reply_text("✖️ У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
+            await update.message.reply_text(  # type: ignore[union-attr] 
+                "✖️ У вас нет файлов", reply_markup=InlineKeyboardMarkup([]))   
    
-    def ParseDeadlines(self, v:str, tz:timezone) -> tuple[datetime, datetime]:
+    def ParseDeadlines(self, v:str, tz:pytz.timezone) -> tuple[datetime, datetime]:
         deadlines = v.strip().split("/", 1)
         if len(deadlines) != 2:
             raise LitGBException("неправильный формат дедлайнов")
