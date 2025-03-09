@@ -1,4 +1,4 @@
-from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, User, Chat, InlineKeyboardButton, InlineKeyboardMarkup, Document, Message
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 import argparse
 from db_worker import DbWorkerService, FileInfo, CompetitionInfo, CompetitionStat, ChatInfo, PollingSchemaInfo, UserStub
@@ -129,17 +129,19 @@ class LitGBot(CompetitionService):
 
     @staticmethod    
     def MakeUserTitle(user:User|None) -> str:
-        result = user.full_name # type: ignore[union-attr]
-        if result is None:
-            result = "@"+str(user.id) # type: ignore[union-attr]
+        if user is None:
+            raise LitGBException("user is None")
+        result = user.full_name 
         if (len(result) < 2):
-            result = user.name # type: ignore[union-attr]
+            result = user.name
         if (len(result) < 1):
-            result = "@"+str(user.id) # type: ignore[union-attr]
+            result = "@"+str(user.id) 
         return result
     
     @staticmethod    
-    def MakeChatTitle(ch:Chat) -> str:
+    def MakeChatTitle(ch:Chat|None) -> str:
+        if ch is None:
+            raise LitGBException("chat is None")
         result = ch.effective_name
         if result is None:
             result = "@"+str(ch.id)
@@ -263,16 +265,18 @@ class LitGBot(CompetitionService):
         status_msg += "\n\n"+ self.get_help()
 
         #status_msg +="\nВерсия "+ str(uptime)
-        await update.message.reply_text(status_msg)
+        await update.message.reply_text(status_msg) # type: ignore[union-attr]
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         status_msg ="Это бот \"Литературные игры\""
         status_msg += "\n\n"+ self.get_help()
-        await update.message.reply_text(self.get_help())        
+        await update.message.reply_text(self.get_help()) # type: ignore[union-attr]
 
     def DeleteFile(self, f:FileInfo):
         logging.warning("[FILESTORAGE] delete file #"+str(f.Id))
-        self.FileStorage.DeleteFileFullPath(f.FilePath)
+        if f.FilePath is None:
+            return
+        self.FileStorage.DeleteFileFullPath(f.FilePath) 
         self.Db.ClearFilePath(f.Id)
 
     def DeleteOldestFile(self, user_id:int) -> str|None:
@@ -301,7 +305,7 @@ class LitGBot(CompetitionService):
         return filename
     
     def CheckPrivateOnly(self, update: Update):
-        if update.effective_user.id != update.effective_chat.id:
+        if update.effective_user.id != update.effective_chat.id:  # type: ignore[union-attr]
             raise OnlyPrivateMessageAllowed()
 
     async def downloader(self, update: Update, context: ContextTypes.DEFAULT_TYPE):            
@@ -313,38 +317,40 @@ class LitGBot(CompetitionService):
 
         file_full_path = None
         file_full_path_tmp = None
-        try:            
+        try:
             total_files_Size = self.Db.GetFilesTotalSize()
             if total_files_Size > self.FileStorage.FileTotalSizeLimit:
                 raise LitGBException("Достигнут лимит хранилища файлов: "+MakeHumanReadableAmount(self.FileStorage.FileTotalSizeLimit))
             
-            self.Db.EnsureUserExists(update.effective_user.id, self.MakeUserTitle(update.effective_user))
+            user_id = update.effective_user.id  # type: ignore[union-attr]
+            self.Db.EnsureUserExists(user_id, self.MakeUserTitle(update.effective_user))
 
             deleted_file_name = None
-            flimit = self.Db.GetUserFileLimit(update.effective_user.id)
+            flimit = self.Db.GetUserFileLimit(user_id)
             if flimit < 1:
                 raise LitGBException("Вам не разрешена загрузка файлов")
             
-            cfile_count = self.Db.GetFileCount(update.effective_user.id)
+            cfile_count = self.Db.GetFileCount(user_id)
 
             if cfile_count >= flimit:
-                deleted_file_name = self.DeleteOldestFile(update.effective_user.id)
+                deleted_file_name = self.DeleteOldestFile(user_id)
                 if not (deleted_file_name is None):
-                    cfile_count = self.Db.GetFileCount(update.effective_user.id)
+                    cfile_count = self.Db.GetFileCount(user_id)
                     if cfile_count >= flimit:
                         raise LitGBException("Достигнут лимит загруженных файлов")                
-                
-
-            file = await context.bot.get_file(update.message.document)             
-            if file.file_size > self.FileStorage.MaxFileSize:
+            msg:Message = update.message # type: ignore[assignment]
+            up_doc:Document = msg.document # type: ignore[assignment, union-attr]
+            file = await context.bot.get_file(up_doc)             
+            if (file.file_size or 0) > self.FileStorage.MaxFileSize:
                 raise LitGBException("Файл слишком большой. Максимальный разрешённый размер: "+MakeHumanReadableAmount(self.FileStorage.MaxFileSize))
             
-            _, ext = os.path.splitext(file.file_path)
+            _, ext = os.path.splitext(file.file_path or ".dat")
 
             file_title = None
-            if not (update.message.caption is None):
-                if len(update.message.caption) > 0:
-                    file_title = update.message.caption.strip(" \t")
+
+            if not (msg.caption is None):
+                if len(msg.caption or "") > 0:
+                    file_title = msg.caption.strip(" \t")
             if file_title is None:
                 file_title = "f_"+GetRandomString(14) 
                 
@@ -353,24 +359,24 @@ class LitGBot(CompetitionService):
             file_full_path_tmp = self.FileStorage.GetFileFullPath(file_title+ext)            
             file_full_path = self.FileStorage.GetFileFullPath(file_title+".fb2_section")
             
-            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" file size "+str(file.file_size)+" downloading...") 
+            logging.info("[DOWNLOADER] user id "+LitGBot.LogUserTitle(update)+" file size "+str(file.file_size)+" downloading...") 
             await file.download_to_drive(file_full_path_tmp)
             
             text_size = FileToFb2Section(file_full_path_tmp, file_full_path, file_title)         
             self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
             file_full_path_tmp = None
             file_size = self.FileStorage.GetFileSize(file_full_path)
-            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" fb2 section file size "+str(file_size)+" download success. Text size: "+str(text_size)) 
+            logging.info("[DOWNLOADER] user id "+LitGBot.LogUserTitle(update)+" fb2 section file size "+str(file_size)+" download success. Text size: "+str(text_size)) 
 
-            _ = self.Db.InsertFile(update.effective_user.id, file_title, file_size, text_size, file_full_path)
+            _ = self.Db.InsertFile(user_id, file_title, file_size, text_size, file_full_path)
             file_full_path = None
 
-            logging.info("[DOWNLOADER] user id "+LitGBot.GetUserTitleForLog(update.effective_user)+" fb2 section file size "+str(file_size)+", text size: "+str(text_size)+". Insert to DB success") 
+            logging.info("[DOWNLOADER] user id "+LitGBot.LogUserTitle(update)+" fb2 section file size "+str(file_size)+", text size: "+str(text_size)+". Insert to DB success") 
 
             reply_text = "☑️ Файл успешно загружен. Имя файла: "+file_title+". Текст: "+ str(text_size)+" знаков"
             if not (deleted_file_name is None):
                 reply_text += "\nБыл удалён файл "+ deleted_file_name
-            await update.message.reply_text(reply_text)      
+            await msg.reply_text(reply_text)      
         finally:
             if not (file_full_path_tmp is None):
                 self.FileStorage.DeleteFileFullPath(file_full_path_tmp)
@@ -393,20 +399,20 @@ class LitGBot(CompetitionService):
         return LitGBot.LockedMark(f.Locked) + "#"+str(f.Id) + ": " +f.Title+" | "+LitGBot.FileSizeCaption(f)
 
     async def filelist(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
-        logging.info("[FILELIST] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[FILELIST] user id "+LitGBot.LogUserTitle(update)) 
         self.FilesViewLimits.Check(update)
 
         self.DeleteOldFiles()
         self.CheckPrivateOnly(update)
 
-        files = self.Db.GetFileList(update.effective_user.id, 30)
+        files = self.Db.GetFileList(update.effective_user.id, 30) # type: ignore[union-attr]
         files.sort(key=lambda x: x.Loaded)
 
         reply_text = "Список файлов\n"
         for file in files:
             reply_text += "\n"+self.MakeFileListItem(file)
 
-        await update.message.reply_text(reply_text)   
+        await update.message.reply_text(reply_text)   # type: ignore[union-attr]
 
     @staticmethod
     def ParseTwoIntArgumentCommand(msg:str, command:str, min:int|None = 1, max:int|None = None) -> tuple[int, int]: 
@@ -468,20 +474,20 @@ class LitGBot(CompetitionService):
 
 
     async def getfb2(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
-        logging.info("[GETFB2] user id "+LitGBot.GetUserTitleForLog(update.effective_user))         
+        logging.info("[GETFB2] user id "+LitGBot.LogUserTitle(update))         
         self.FilesViewLimits.Check(update)
 
         self.DeleteOldFiles() 
         self.CheckPrivateOnly(update) 
-        
-        file_id = self.ParseSingleIntArgumentCommand(update.message.text, "/getfb2", 1, None)
-        file = self.GetFileAndCheckAccess(file_id, update.effective_user.id)
+        command:str = update.message.text or "" # type: ignore[assignment,union-attr]
+        file_id = self.ParseSingleIntArgumentCommand(command, "/getfb2", 1, None) 
+        file = self.GetFileAndCheckAccess(file_id, update.effective_user.id) # type: ignore[union-attr]
 
-        await self.SendFB2(file, update.effective_chat.id, context)
+        await self.SendFB2(file, update.effective_chat.id, context) # type: ignore[union-attr]
 
 
     @staticmethod
-    def file_menu_message(f:FileInfo|None) -> str:        
+    def file_menu_message(f:FileInfo) -> str:        
         result = LitGBot.LockedMark(f.Locked) + "#" + str(f.Id)
         result +="\nНазвание: " + f.Title
         result +="\n"+LitGBot.FileSizeCaption(f)
@@ -565,7 +571,7 @@ class LitGBot(CompetitionService):
     
 
     async def file_menu_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: 
-        logging.info("[file_menu_handler] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[file_menu_handler] user id "+LitGBot.LogUserTitle(update)) 
         if update.effective_user.id != update.effective_chat.id:
             return        
         
@@ -642,7 +648,7 @@ class LitGBot(CompetitionService):
                 text=LitGBot.MakeExternalErrorMessage(ex), reply_markup=InlineKeyboardMarkup([])) 
 
     async def set_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
         if update.effective_user.id != update.effective_chat.id:
             return
         if not (update.effective_user.id in self.Admins):
@@ -652,7 +658,7 @@ class LitGBot(CompetitionService):
         await update.message.reply_text("Лимит у пользователя "+str(user_id)+" установлен в значение "+str(limit))
 
     async def set_allusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
         if update.effective_user.id != update.effective_chat.id:
             return
         if not (update.effective_user.id in self.Admins):
@@ -662,7 +668,7 @@ class LitGBot(CompetitionService):
         await update.message.reply_text("Лимит "+str(affected_users)+" пользователей установлен в значение "+str(limit))
 
     async def set_newusers_file_limit(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logging.warning("[ADMIN] user id "+LitGBot.GetUserTitleForLog(update.effective_user))     
+        logging.warning("[ADMIN] user id "+LitGBot.LogUserTitle(update))     
         if update.effective_user.id != update.effective_chat.id:
             return
         if not (update.effective_user.id in self.Admins):
@@ -680,7 +686,7 @@ class LitGBot(CompetitionService):
         
 
     async def files(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:            
-        logging.info("[FILES] user id "+LitGBot.GetUserTitleForLog(update.effective_user)) 
+        logging.info("[FILES] user id "+LitGBot.LogUserTitle(update)) 
         self.FilesViewLimits.Check(update)
         self.DeleteOldFiles() 
         self.CheckPrivateOnly(update)
