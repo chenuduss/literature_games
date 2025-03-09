@@ -27,3 +27,9 @@
     python3 src/litgb.py --conf test/conf.json
 
 
+## Статическая проверка 
+
+Выполнение статической проверки исходного кода с помощью mypy
+
+    cd src
+    mypy .

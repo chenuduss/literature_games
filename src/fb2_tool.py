@@ -4,6 +4,8 @@ import re
 import os
 from datetime import datetime
 
+import docx.document
+
 from litgb_exception import UnknownFileFormatException, LitGBException
 
 NotAllowedText = [
@@ -33,8 +35,8 @@ class TextValidationError(LitGBException):
     def __init__(self, msg:str|None = None):
         LitGBException.__init__(self, "Текст не прошёл валидацию"+ ("" if msg is None else (". Причина: "+msg)))
  
-def GetParagraphs(doc:docx.Document) -> list[str]:
-    result = []
+def GetParagraphs(doc:docx.document.Document) -> list[str]:
+    result:list[str] = []
     for para in doc.paragraphs:	
         result.append(para.text)
     

@@ -21,9 +21,11 @@ class DefaultTrielPolling(ICompetitionPolling):
     def ParseMenuQuery(query:str) -> tuple[str, int]:
         try:
             m = DefaultTrielPolling.MenuQueryRegex.match(query)
+            if m is None:
+                raise LitGBException("DefaultTrielPolling: invalid polling menu query (1)")
             return (m.group(1), int(m.group(2)))
         except BaseException as ex:
-            raise LitGBException("DefaultTrielPolling: invalid polling menu query")     
+            raise LitGBException("DefaultTrielPolling: invalid polling menu query (2)")
 
     def __init__(self, db:DbWorkerService, schema_config:PollingSchemaInfo, comp_worker:CompetitionWorker):
         ICompetitionPolling.__init__(self, db, schema_config)
@@ -32,7 +34,8 @@ class DefaultTrielPolling(ICompetitionPolling):
     def GetMinimumMemberCount(self) -> int:
         return 3   
     def GetMaximumMemberCount(self) -> int:
-        return 3        
+        return 3   
+    
 
     def GetPollingMessageText(self, comp:CompetitionInfo, comp_stat:CompetitionStat, update: Update, polling_draft:dict|None) -> str:
         msgtext = ICompetitionPolling.MakePollingMessageHeader(comp, self.Config)
@@ -55,10 +58,10 @@ class DefaultTrielPolling(ICompetitionPolling):
                 msgtext += "\nПроголосовавших участников: "+str(members_polled)
 
 
-        if update.effective_user.id != update.effective_chat.id:
+        if update.effective_user.id != update.effective_chat.id: # type: ignore[union-attr]
             msgtext += "\n\n⚠️ Голосование может происходить только в личных сообщениях бота."
         else:
-            user_ballots = ballots.get(UserStub(update.effective_user.id), [])
+            user_ballots = ballots.get(UserStub(update.effective_user.id), []) # type: ignore[union-attr]
             if len(user_ballots) > 0:    
                 msgtext += "\n\n🗳 Ваше голосование:"
                 user_ballots.sort(key=lambda x: x.Points)
@@ -84,22 +87,22 @@ class DefaultTrielPolling(ICompetitionPolling):
         return ICompetitionPolling.MakeMenuQuery(self.Config.Id, comp_id, query)  
 
     def MakeKeyboard(self, update: Update, comp:CompetitionInfo, comp_stat:CompetitionStat, polling_draft:dict|None) -> InlineKeyboardMarkup:
-        keyboard = []
-        if update.effective_user.id != update.effective_chat.id:
+        keyboard:list[list[InlineKeyboardButton]] = []
+        if update.effective_user.id != update.effective_chat.id: # type: ignore[union-attr]
             return InlineKeyboardMarkup(keyboard)
 
         if polling_draft is None:
             for au, files in comp_stat.SubmittedFiles.items():
                 for f in files:
-                    if au.Id != update.effective_user.id:
+                    if au.Id != update.effective_user.id: # type: ignore[union-attr]
                         keyboard.append([InlineKeyboardButton("#"+str(f.Id)+" "+f.NameForButtonCaption(), callback_data=self.MakeQueryString(comp.Id, "select1:"+str(f.Id)))]) 
         else:
             pos1_id = polling_draft['pos1']
             for au, files in comp_stat.SubmittedFiles.items():
                 for f in files:
-                    if (au.Id != update.effective_user.id) and (f.id != pos1_id):
+                    if (au.Id != update.effective_user.id) and (f.Id != pos1_id):  # type: ignore[union-attr]
                         keyboard.append([InlineKeyboardButton("#"+str(f.Id)+" "+f.NameForButtonCaption(), callback_data=self.MakeQueryString(comp.Id, "select2:"+str(f.Id)))])
-            if self.ValidatePollingDraft(polling_draft, UserStub(update.effective_user.id), comp_stat):
+            if self.ValidatePollingDraft(polling_draft, UserStub(update.effective_user.id), comp_stat): # type: ignore[union-attr]
                 keyboard.append([InlineKeyboardButton("Проголосовать", callback_data=self.MakeQueryString(comp.Id, "apply:0"))]) 
 
             keyboard.append([InlineKeyboardButton("Очистить черновик", callback_data=self.MakeQueryString(comp.Id, "discard_draft:0"))])     
@@ -111,8 +114,8 @@ class DefaultTrielPolling(ICompetitionPolling):
         
         comp_info = self.CompWorker.GetCompetitionFullInfo(comp)    
         polling_draft = None
-        if update.effective_user.id != update.effective_chat.id:
-            polling_draft = self.Db.ReadUserPollingDraft(comp.Id, update.effective_user.id)
+        if update.effective_user.id != update.effective_chat.id: # type: ignore[union-attr]
+            polling_draft = self.Db.ReadUserPollingDraft(comp.Id, update.effective_user.id) # type: ignore[union-attr]
         msgtext = self.GetPollingMessageText(comp, comp_info.Stat, update, polling_draft)
         
 

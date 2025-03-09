@@ -23,9 +23,11 @@ class ICompetitionPolling:
     def ParsePollingMenuQuery(query:str) -> tuple[int, int, str]:
         try:
             m = ICompetitionPolling.PollingMenuQueryRegex.match(query)
+            if m is None:
+                raise LitGBException("invalid polling menu query (1)")
             return (int(m.group(1)), int(m.group(2)), m.group(3))
         except BaseException as ex:
-            raise LitGBException("invalid polling menu query")   
+            raise LitGBException("invalid polling menu query (2)")
 
     @staticmethod
     def MakeMenuQuery(handler_id:int, comp_id:int, query:str) -> str:

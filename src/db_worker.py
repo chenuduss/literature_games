@@ -190,14 +190,14 @@ class  CompetitionStat:
     def GetSubmittedMembers(self) -> list[UserInfo]:
         return list(self.SubmittedFiles.keys())
      
-    def GetFileInfo(self, id:int) -> FileInfo:
+    def GetFileInfo(self, id:int) -> FileInfo|None:
         for fl in self.SubmittedFiles.values():
             for f in fl:
                 if f.Id == id:
                     return f
         return None
     
-    def GetFileSubmitter(self, id:int) -> UserInfo:
+    def GetFileSubmitter(self, id:int) -> UserInfo|None:
         for u, fl in self.SubmittedFiles.items():
             for f in fl:
                 if f.Id == id:
@@ -219,7 +219,7 @@ class DbWorkerService:
 
 
     @ConnectionPool    
-    def FindPollingSchema(self, id:int, connection=None) -> PollingSchemaInfo:    
+    def FindPollingSchema(self, id:int, connection=None) -> PollingSchemaInfo|None:    
         ps_cursor = connection.cursor()          
         ps_cursor.execute("SELECT handler_name, title, description, for_open_competition FROM polling_scheme WHERE id = %s ", (id, ))        
         rows = ps_cursor.fetchall()
@@ -303,7 +303,7 @@ class DbWorkerService:
         return 0
     
     @ConnectionPool    
-    def FindChat(self, id:int, connection=None) -> int:
+    def FindChat(self, id:int, connection=None) -> ChatInfo|None:
         ps_cursor = connection.cursor()          
         ps_cursor.execute("SELECT title FROM chat WHERE id = %s", (id, ))        
         rows = ps_cursor.fetchall()
@@ -786,7 +786,7 @@ class DbWorkerService:
         return result 
     
     @ConnectionPool 
-    def GetCurrentPollingCompetitionInChat(self, chat_id:int, connection=None) -> CompetitionInfo:
+    def GetCurrentPollingCompetitionInChat(self, chat_id:int, connection=None) -> CompetitionInfo|None:
         ps_cursor = connection.cursor()  
         ps_cursor.execute("SELECT "+self.SelectCompFields()+" FROM competition WHERE chat_id = %s AND polling_started IS NOT NULL AND polling_deadline > current_timestamp", (chat_id, ))
         rows = ps_cursor.fetchall()
@@ -797,7 +797,7 @@ class DbWorkerService:
         return None
     
     @ConnectionPool
-    def FindUser(self, user_id:int, connection=None) -> UserFullInfo:
+    def FindUser(self, user_id:int, connection=None) -> UserFullInfo|None:
         ps_cursor = connection.cursor()
         ps_cursor.execute("SELECT title, losses, wins, half_wins, file_limit FROM sd_user WHERE id = %s", (user_id, ))
         rows = ps_cursor.fetchall()

@@ -46,7 +46,7 @@ class CompetitionWorker:
         return comp    
     
     @staticmethod
-    def CheckCompetitionInPollingStage(comp:CompetitionInfo) -> str:
+    def CheckCompetitionInPollingStage(comp:CompetitionInfo) -> str|None:
         if not (comp.Finished is None):
             return "🚫 Конкурс уже завершён"
         if not comp.IsPollingStarted():
@@ -106,9 +106,9 @@ class CompetitionWorker:
         return None
         
     @staticmethod
-    def EnsureCompetitionCreator(comp: CompetitionInfo, user_id:int) -> str|None:
+    def EnsureCompetitionCreator(comp: CompetitionInfo, user_id:int) -> None:
         if comp.CreatedBy != user_id:
-            raise LitGBException("изменение свойств конкурса разрешено только его создателю")        
+            raise LitGBException("изменение свойств конкурса разрешено только его создателю")     
         
     def FindPropertyChangableCompetition(self, comp_id:int, check_creator:int|None) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(comp_id)
@@ -159,7 +159,7 @@ class CompetitionWorker:
 
     def FindLeavableCompetition(self, id:int) -> CompetitionInfo:
         comp = self.FindCompetitionBeforePollingStage(id)
-        reason = self.CheckCompetitionLeaveable()        
+        reason = self.CheckCompetitionLeaveable(comp)
         if reason is None:
             return comp
         
@@ -182,9 +182,10 @@ class CompetitionWorker:
     
     def ReleaseUserFilesFromCompetition(self, user_id: int, comp:CompetitionInfo, unreg:bool) -> CompetitionFullInfo:
         if unreg:
-            self.Db.UnregUser(comp.Id, user_id)
+            return self.Db.UnregUser(comp.Id, user_id)
         else:    
-            self.Db.ReleaseUserFiles(comp.Id, user_id)
+            return self.Db.ReleaseUserFiles(comp.Id, user_id)
+
 
     @staticmethod
     def IsCompetitionСancelable(comp:CompetitionInfo) -> str|None:

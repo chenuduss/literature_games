@@ -3,6 +3,7 @@ from file_worker import FileWorker
 from file_storage import FileStorage
 from fb2_tool import SectionToFb2
 from db_worker import FileInfo
+from litgb_exception import LitGBException
 
 class FileService(FileWorker):
     def __init__(self, file_stor:FileStorage):
@@ -14,7 +15,10 @@ class FileService(FileWorker):
         try:
             fb2_name = f.Title+".fb2"
             fb2_filepath = self.FileStorage.GetFileFullPath(fb2_name) 
-            SectionToFb2(f.FilePath, fb2_filepath, f.Title)
+            if f.FilePath is None:
+                raise LitGBException("file deleted: id="+str(f.Id))
+            else:    
+                SectionToFb2(f.FilePath, fb2_filepath, f.Title)
 
             file_obj = open(fb2_filepath, "rb")            
             await context.bot.send_document(chat_id, file_obj, filename=fb2_name)
